@@ -168,9 +168,13 @@ const levels = [
       [495, 432],    // floating on ground (between snake and spikes)
     ],
     enemies: [
-      // SNAKE — coiled on the snake platform, mouth chomps. Eats the player
-      // and the player spits out all collected coins on the spot.
-      [320, 388, 290, 410, "#7BA847", 99, "snake"],
+      // SNAKE — chomps; eating the player sends all collected coins back to
+      // their original positions. Stompable (1 hp).
+      [320, 388, 290, 410, "#7BA847", 1, "snake"],
+      // Walkers patrolling the level
+      [380, 112, 360, 490, "#E07533", 1, "walker"],   // top-middle long platform
+      [720, 402, 700, 780, "#E07533", 1, "walker"],   // bottom-right (near flag)
+      [340, 262, 330, 380, "#E07533", 1, "walker"],   // left-column high platform
     ],
     cannons: [],
     hazards: [
@@ -1132,18 +1136,17 @@ function update() {
         player.y < e[1] + eh;
 
       if (hit) {
-        if (isSnake) {
-          snakeEat();    // get eaten — spit out all collected coins
-          break;
-        }
         const stomp = player.speedY > 0 && player.y + player.height < e[1] + 16;
         if (stomp) {
           e[5] -= 1;
           player.speedY = -10;
           if (e[5] <= 0) {
             e[9] = false;
-            player.score += isBoss ? 10 : 2;
+            player.score += isBoss ? 10 : isSnake ? 5 : 2;
           }
+        } else if (isSnake) {
+          snakeEat();     // chomped from the side — coins go back, respawn
+          break;
         } else {
           respawn();
           break;          // respawn() reset enemy state — stop iterating safely
