@@ -134,22 +134,65 @@ const levels = [
     flag: { x: 778, y: 132, width: 6, height: 48 },
   },
 
-  // -------- LEVEL 3 (DESIGN ME — waiting for the kid's sketch) --------
+  // -------- LEVEL 3 (lava cave — third sketch) --------
   {
-    name: "Level 3 — WIP",
-    skyColor: "#1A0E2E",            // night sky placeholder
+    name: "Level 3",
+    skyColor: "#241015",              // dark cave
     playerStart: { x: 30, y: 420 },
     platforms: [
-      [0, 460, 800, 40, "#2A2A36"], // ground
+      [0, 460, 800, 40, "#3A1F1F"],   // dark red ground
+      [60, 420, 90, 14, "#4A3A3A"],   // bottom-left small
+      [180, 380, 60, 14, "#4A3A3A"],  // step up
+      [260, 430, 170, 14, "#4A3A3A"], // SNAKE platform
+      [330, 360, 50, 14, "#4A3A3A"],  // left column mid
+      [330, 290, 50, 14, "#4A3A3A"],  // left column high
+      [410, 320, 50, 14, "#4A3A3A"],  // right column mid
+      [410, 240, 50, 14, "#4A3A3A"],  // right column high
+      [500, 280, 60, 14, "#4A3A3A"],  // right-middle
+      [580, 220, 60, 14, "#4A3A3A"],  // higher-right
+      [360, 140, 130, 14, "#4A3A3A"], // top-middle (under the 2 coins)
+      [700, 430, 80, 14, "#4A3A3A"],  // bottom-right (FLAG)
     ],
     coins: [
-      [120, 430], [400, 430], [680, 430],
+      [85, 392],     // bottom-left small
+      [195, 352],    // step
+      [345, 332],    // left column mid
+      [345, 262],    // left column high
+      [425, 292],    // right column mid
+      [425, 212],    // right column high
+      [520, 252],    // right-middle
+      [600, 192],    // higher-right
+      [385, 112],    // top-middle coin 1
+      [445, 112],    // top-middle coin 2
+      [720, 402],    // bottom-right
+      [495, 432],    // floating on ground (between snake and spikes)
     ],
-    enemies: [],
+    enemies: [
+      // SNAKE — coiled on the snake platform, mouth chomps. Eats the player
+      // and the player spits out all collected coins on the spot.
+      [320, 388, 290, 410, "#7BA847", 99, "snake"],
+    ],
     cannons: [],
-    hazards: [],
+    hazards: [
+      // Right-side spike wall (stairs going down)
+      [720, 280, 60, 80, "spike"],
+      [620, 360, 90, 60, "spike"],
+    ],
     ramps: [],
     springs: [],
+    fireSpawners: [
+      // Falling fireballs from the top-left side
+      [80, 130, "#FF5522"],
+      [140, 170, "#FF5522"],
+      [200, 110, "#FF5522"],
+    ],
+    icicles: [
+      // Hanging from the ceiling. Drop when the player passes underneath.
+      [380, 0, 18, 28],
+      [470, 0, 18, 28],
+      [560, 0, 18, 28],
+      [650, 0, 18, 28],
+    ],
     flag: { x: 758, y: 412, width: 6, height: 48 },
   },
 ];
@@ -157,10 +200,13 @@ const levels = [
 // === ACTIVE LEVEL STATE ===
 // These get reassigned by loadLevel(); the main loop reads from them.
 let currentLevel = 0;
-let platforms, coins, enemies, cannons, hazards, ramps, springs, flag, playerStart;
+let platforms, coins, enemies, cannons, hazards, ramps, springs, fireSpawners, icicles, flag, playerStart;
+// coinState mirrors `coins` per level but is mutable — snake can scatter them around.
+let coinState = [];
 const collectedCoins = new Set();
 const bullets = [];
 const acidBalls = [];
+const fireballs = [];
 let frameCount = 0;
 
 // Tuning constants (shared across levels)
@@ -193,6 +239,13 @@ function loadLevel(n) {
   hazards = lvl.hazards || [];
   ramps = lvl.ramps || [];
   springs = lvl.springs || [];
+  fireSpawners = lvl.fireSpawners || [];
+  // Icicles: clone each so the per-icicle runtime state (falling, y position)
+  // doesn't leak back into the level's literal data when we reset.
+  icicles = (lvl.icicles || []).map(i => ({
+    x: i[0], y0: i[1], w: i[2], h: i[3],
+    y: i[1], state: "idle",   // "idle" | "falling" | "broken"
+  }));
   flag = lvl.flag;
   playerStart = lvl.playerStart;
 
@@ -204,9 +257,13 @@ function loadLevel(n) {
     e.push(true);   // [9] alive
   }
 
+  // Fresh mutable copy of coin positions
+  coinState = coins.map(c => [c[0], c[1]]);
+
   collectedCoins.clear();
   bullets.length = 0;
   acidBalls.length = 0;
+  fireballs.length = 0;
   player.x = playerStart.x;
   player.y = playerStart.y;
   player.speedX = 0;
@@ -248,6 +305,7 @@ function drawEnemy(e) {
 
   if (kind === "boss-toxic") { drawBoss(e); return; }
   if (kind === "boss-spiky") { drawBossSpiky(e); return; }
+  if (kind === "snake") { drawSnake(e); return; }
 
   const w = 32, h = 28;
 
@@ -582,9 +640,44 @@ function drawBossSpiky(e) {
   }
 }
 
-// === DRAW A HAZARD (electric barrier) ===
+// === DRAW A HAZARD ===
 function drawHazard(h) {
   const [x, y, w, height, kind] = h;
+
+  if (kind === "spike") {
+    // Static spike wall (right-side stairs in level 3)
+    ctx.fillStyle = "#888892";
+    ctx.fillRect(x, y, w, height);
+    ctx.fillStyle = "#C0C0CC";
+    ctx.strokeStyle = "#2A2A36";
+    ctx.lineWidth = 1;
+    const tooth = 12;
+    // tooth pattern on each visible edge — top, bottom, left, right
+    const drawTeeth = (count, fn) => {
+      ctx.beginPath();
+      for (let i = 0; i < count; i++) fn(i);
+      ctx.fill();
+      ctx.stroke();
+    };
+    const cTop = Math.max(1, Math.floor(w / tooth));
+    const stepTop = w / cTop;
+    drawTeeth(cTop, (i) => {
+      const tx = x + i * stepTop;
+      ctx.moveTo(tx, y);
+      ctx.lineTo(tx + stepTop / 2, y - tooth);
+      ctx.lineTo(tx + stepTop, y);
+    });
+    const cLeft = Math.max(1, Math.floor(height / tooth));
+    const stepLeft = height / cLeft;
+    drawTeeth(cLeft, (i) => {
+      const ty = y + i * stepLeft;
+      ctx.moveTo(x, ty);
+      ctx.lineTo(x - tooth, ty + stepLeft / 2);
+      ctx.lineTo(x, ty + stepLeft);
+    });
+    return;
+  }
+
   if (kind !== "electric") return;
 
   // Dark cloud backdrop
@@ -640,6 +733,161 @@ function drawRamp(r) {
   ctx.fillStyle = "#FFFFFF";
   ctx.font = "bold 14px monospace";
   ctx.fillText(dir === "right" ? "→" : "←", x + w / 2 - 6, y + h - 6);
+}
+
+// === DRAW THE SNAKE ===
+// Coiled green serpent with an animated mouth that opens and closes.
+function drawSnake(e) {
+  const x = e[0], y = e[1];
+  const w = 56, h = 36;
+  const t = Date.now() / 400;
+  const chomp = (Math.sin(t) + 1) / 2;   // 0..1 open amount
+
+  // Coiled body (two big circles forming a coil)
+  ctx.fillStyle = e[4] || "#7BA847";
+  ctx.beginPath();
+  ctx.arc(x + 24, y + 26, 18, 0, Math.PI * 2);
+  ctx.arc(x + 36, y + 22, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#3F5F2B";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Pattern stripes on the body
+  ctx.strokeStyle = "rgba(63, 95, 43, 0.6)";
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.arc(x + 24, y + 26, 10 + i * 2, Math.PI * 0.2, Math.PI * 0.7);
+    ctx.stroke();
+  }
+
+  // Head — to the left of the body, raised
+  const hx = x + 4;
+  const hy = y + 8;
+  ctx.fillStyle = e[4] || "#7BA847";
+  ctx.beginPath();
+  ctx.ellipse(hx + 10, hy + 8, 12, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#3F5F2B";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Eye
+  ctx.fillStyle = "#FFFFFF";
+  ctx.beginPath();
+  ctx.arc(hx + 6, hy + 5, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.arc(hx + 5, hy + 5, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Open mouth — animated
+  const openY = chomp * 6;
+  ctx.fillStyle = "#3F1A1A";
+  ctx.beginPath();
+  ctx.moveTo(hx, hy + 8);
+  ctx.lineTo(hx - 8, hy + 4 - openY);
+  ctx.lineTo(hx - 10, hy + 8);
+  ctx.lineTo(hx - 8, hy + 12 + openY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Fangs
+  ctx.fillStyle = "#FFFFFF";
+  ctx.beginPath();
+  ctx.moveTo(hx - 4, hy + 4 - openY * 0.4);
+  ctx.lineTo(hx - 6, hy + 8);
+  ctx.lineTo(hx - 2, hy + 7);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(hx - 4, hy + 12 + openY * 0.4);
+  ctx.lineTo(hx - 6, hy + 8);
+  ctx.lineTo(hx - 2, hy + 9);
+  ctx.closePath();
+  ctx.fill();
+
+  // Forked tongue (only when mouth is open enough)
+  if (chomp > 0.5) {
+    ctx.strokeStyle = "#E63";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(hx - 10, hy + 8);
+    ctx.lineTo(hx - 18, hy + 8);
+    ctx.moveTo(hx - 18, hy + 8);
+    ctx.lineTo(hx - 22, hy + 4);
+    ctx.moveTo(hx - 18, hy + 8);
+    ctx.lineTo(hx - 22, hy + 12);
+    ctx.stroke();
+  }
+}
+
+// === DRAW A FALLING FIREBALL ===
+function drawFireball(f) {
+  // Outer flame glow
+  ctx.fillStyle = "rgba(255, 100, 0, 0.4)";
+  ctx.beginPath();
+  ctx.arc(f.x, f.y, 12, 0, Math.PI * 2);
+  ctx.fill();
+  // Body
+  ctx.fillStyle = "#FF5522";
+  ctx.beginPath();
+  ctx.arc(f.x, f.y, 8, 0, Math.PI * 2);
+  ctx.fill();
+  // Inner hot core
+  ctx.fillStyle = "#FFC130";
+  ctx.beginPath();
+  ctx.arc(f.x - 1, f.y - 2, 4, 0, Math.PI * 2);
+  ctx.fill();
+  // Trailing flame above (since it's falling)
+  ctx.fillStyle = "rgba(255, 200, 60, 0.5)";
+  ctx.beginPath();
+  ctx.moveTo(f.x - 5, f.y - 4);
+  ctx.lineTo(f.x, f.y - 18);
+  ctx.lineTo(f.x + 5, f.y - 4);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// === DRAW A FIRE SPAWNER (small glow at the top to hint where fire drops) ===
+function drawFireSpawner(s) {
+  const [x, y, , color] = s;
+  ctx.fillStyle = "rgba(255, 100, 0, 0.35)";
+  ctx.beginPath();
+  ctx.arc(x, 6, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = color || "#FF5522";
+  ctx.beginPath();
+  ctx.arc(x, 4, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// === DRAW AN ICICLE ===
+function drawIcicle(ic) {
+  if (ic.state === "broken") return;
+  const wobble = ic.state === "idle"
+    ? Math.sin(Date.now() / 600 + ic.x) * 0.5
+    : 0;
+  // Body — narrowing triangle pointing down
+  ctx.fillStyle = "#B8E6FF";
+  ctx.strokeStyle = "#3A7080";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(ic.x + wobble, ic.y);
+  ctx.lineTo(ic.x + ic.w + wobble, ic.y);
+  ctx.lineTo(ic.x + ic.w / 2 + wobble, ic.y + ic.h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // Highlight stripe
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(ic.x + 4 + wobble, ic.y + 4);
+  ctx.lineTo(ic.x + ic.w / 2 - 1 + wobble, ic.y + ic.h - 4);
+  ctx.stroke();
 }
 
 // === DRAW A SPRING ===
@@ -742,6 +990,22 @@ function respawn() {
   }
   bullets.length = 0;
   acidBalls.length = 0;
+  fireballs.length = 0;
+  for (const ic of icicles) {
+    ic.y = ic.y0;
+    ic.state = "idle";
+  }
+}
+
+// === SNAKE EATS PLAYER — all collected coins go back to their original spots ===
+function snakeEat() {
+  for (const idx of collectedCoins) {
+    coinState[idx][0] = coins[idx][0];
+    coinState[idx][1] = coins[idx][1];
+  }
+  player.score -= collectedCoins.size;
+  collectedCoins.clear();
+  respawn();
 }
 
 // === MAIN GAME LOOP ===
@@ -803,7 +1067,7 @@ function update() {
     // -- Coin collection --
     for (let i = 0; i < coins.length; i++) {
       if (collectedCoins.has(i)) continue;
-      const [cx, cy] = coins[i];
+      const [cx, cy] = coinState[i];
       if (
         player.x + player.width > cx &&
         player.x < cx + 20 &&
@@ -824,12 +1088,13 @@ function update() {
       if (!e[9]) continue;
       const kind = e[6];
       const isBoss = typeof kind === "string" && kind.startsWith("boss");
-      const ew = isBoss ? 64 : 32;
-      const eh = isBoss ? 50 : 28;
+      const isSnake = kind === "snake";
+      const ew = isBoss ? 64 : isSnake ? 56 : 32;
+      const eh = isBoss ? 50 : isSnake ? 36 : 28;
 
-      if (isBoss) {
-        // Bosses stand still and just attack.
-        e[8] = -1;   // always face left
+      if (isBoss || kind === "snake") {
+        // Bosses and snakes stand still.
+        e[8] = -1;
       } else {
         // Walkers patrol
         e[0] += enemySpeed * e[8];
@@ -867,6 +1132,10 @@ function update() {
         player.y < e[1] + eh;
 
       if (hit) {
+        if (isSnake) {
+          snakeEat();    // get eaten — spit out all collected coins
+          break;
+        }
         const stomp = player.speedY > 0 && player.y + player.height < e[1] + 16;
         if (stomp) {
           e[5] -= 1;
@@ -971,6 +1240,67 @@ function update() {
       }
     }
 
+    // -- Fire spawners drop fireballs from the sky --
+    for (const [fx, , rate] of fireSpawners) {
+      if (frameCount % rate === Math.floor(rate / 2)) {
+        fireballs.push({ x: fx, y: -10, vy: 3 });
+      }
+    }
+
+    // -- Fireballs fall + hurt the player --
+    for (let i = fireballs.length - 1; i >= 0; i--) {
+      const f = fireballs[i];
+      f.vy += 0.08;            // gentle acceleration
+      f.y += f.vy;
+      if (f.y > canvas.height + 20) {
+        fireballs.splice(i, 1);
+        continue;
+      }
+      if (
+        f.x + 8 > player.x && f.x - 8 < player.x + player.width &&
+        f.y + 10 > player.y && f.y - 10 < player.y + player.height
+      ) {
+        fireballs.splice(i, 1);
+        respawn();
+        break;
+      }
+    }
+
+    // -- Icicles: trigger when player walks under, then fall and hurt --
+    for (const ic of icicles) {
+      if (ic.state === "broken") continue;
+
+      if (ic.state === "idle") {
+        // Trigger if the player is roughly under the icicle
+        if (
+          player.x + player.width > ic.x - 6 &&
+          player.x < ic.x + ic.w + 6 &&
+          player.y > ic.y + ic.h
+        ) {
+          ic.state = "falling";
+          ic.vy = 0;
+        }
+      } else if (ic.state === "falling") {
+        ic.vy = (ic.vy || 0) + 0.5;
+        ic.y += ic.vy;
+        // Collision with player
+        if (
+          player.x + player.width > ic.x &&
+          player.x < ic.x + ic.w &&
+          player.y + player.height > ic.y &&
+          player.y < ic.y + ic.h
+        ) {
+          ic.state = "broken";
+          respawn();
+          break;
+        }
+        // Shatter on ground / off-screen
+        if (ic.y > canvas.height - 40) {
+          ic.state = "broken";
+        }
+      }
+    }
+
     // -- Flag check --
     if (
       collectedCoins.size === coins.length &&
@@ -1027,15 +1357,24 @@ function update() {
   // Springs
   for (const s of springs) drawSpring(s);
 
-  // Hazards (electric, etc.)
+  // Hazards (electric, spike walls, etc.)
   for (const h of hazards) drawHazard(h);
+
+  // Fire spawners (glowing dots at the top of the screen)
+  for (const s of fireSpawners) drawFireSpawner(s);
+
+  // Icicles
+  for (const ic of icicles) drawIcicle(ic);
+
+  // Falling fireballs
+  for (const f of fireballs) drawFireball(f);
 
   // Flag
   drawFlag();
 
   // Coins
   for (let i = 0; i < coins.length; i++) {
-    drawCoin(coins[i][0], coins[i][1], i);
+    drawCoin(coinState[i][0], coinState[i][1], i);
   }
 
   // Cannons
