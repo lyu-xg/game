@@ -133,6 +133,25 @@ const levels = [
     ],
     flag: { x: 778, y: 132, width: 6, height: 48 },
   },
+
+  // -------- LEVEL 3 (DESIGN ME — waiting for the kid's sketch) --------
+  {
+    name: "Level 3 — WIP",
+    skyColor: "#1A0E2E",            // night sky placeholder
+    playerStart: { x: 30, y: 420 },
+    platforms: [
+      [0, 460, 800, 40, "#2A2A36"], // ground
+    ],
+    coins: [
+      [120, 430], [400, 430], [680, 430],
+    ],
+    enemies: [],
+    cannons: [],
+    hazards: [],
+    ramps: [],
+    springs: [],
+    flag: { x: 758, y: 412, width: 6, height: 48 },
+  },
 ];
 
 // === ACTIVE LEVEL STATE ===
