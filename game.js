@@ -20,24 +20,39 @@ const player = {
 
 // === CONTROLS ===
 const keys = {};
-window.addEventListener("keydown", (e) => { keys[e.key] = true; });
+window.addEventListener("keydown", (e) => {
+  keys[e.key] = true;
+  // DEV: press 1, 2, 3... to jump straight to that level (handy for testing).
+  if (/^[1-9]$/.test(e.key)) {
+    const idx = parseInt(e.key, 10) - 1;
+    if (idx < levels.length) {
+      gameWon = false;
+      levelClearAt = 0;
+      loadLevel(idx);
+    }
+  }
+});
 window.addEventListener("keyup", (e) => { keys[e.key] = false; });
 
 // === GRAVITY ===
 const gravity = 0.6;
 
 // === LEVELS ===
-// Each level holds all of its own platforms, coins, enemies, cannons, and flag.
-// Kid: design new levels by adding more entries to this array.
+// Each level holds all of its own platforms, coins, enemies, cannons, hazards,
+// ramps, springs, and flag. Kid: design new levels by adding more entries here.
 //
 // Formats:
 //   platform: [x, y, width, height, color]
 //   coin:     [x, y]
-//   enemy:    [x, y, leftBound, rightBound, color, hp, isBoss]
+//   enemy:    [x, y, leftBound, rightBound, color, hp, kind]
+//             kind ∈ "walker" | "boss-toxic" | "boss-spiky"
 //   cannon:   [x, y, fireRateFrames, color]
+//   hazard:   [x, y, width, height, kind]    kind ∈ "electric"  (instant death)
+//   ramp:     [x, y, width, height, slideDir]   slideDir ∈ "right" | "left"
+//   spring:   [x, y, width, jumpPower]        — sits on top of a platform
 //   flag:     { x, y, width, height }
 const levels = [
-  // -------- LEVEL 1 (the kid's notebook sketch) --------
+  // -------- LEVEL 1 (the kid's first notebook sketch) --------
   {
     name: "Level 1",
     skyColor: "#87CEEB",
@@ -57,36 +72,73 @@ const levels = [
     ],
     enemies: [
       // BOSS — green blob, toxic-waste bucket on head, spits acid LEFT.
-      [660, 330, 560, 780, "#2EA34F", 2, true],
+      [660, 330, 560, 780, "#2EA34F", 2, "boss-toxic"],
     ],
     cannons: [
-      [200, 270, 160, "#555"],  // fires every 160 frames (~2.7s)
+      [200, 270, 160, "#555"],
     ],
+    hazards: [],
+    ramps: [],
+    springs: [],
     flag: { x: 758, y: 162, width: 6, height: 48 },
   },
 
-  // -------- LEVEL 2 (DESIGN ME) --------
-  // Placeholder so the level transition works. Replace with the kid's sketch!
+  // -------- LEVEL 2 (robot lair — second sketch) --------
   {
-    name: "Level 2 — WIP",
-    skyColor: "#FFC97A",     // sunset color, just so it looks different
+    name: "Level 2",
+    skyColor: "#2E2A4A",              // dark sci-fi blue
     playerStart: { x: 30, y: 420 },
     platforms: [
-      [0, 460, 800, 40, "#6E4F2C"],     // ground (browner desert)
+      [0, 460, 800, 40, "#3A3A48"],   // metal ground
+      [40, 140, 130, 14, "#6A6A78"],  // top-left platform (1 coin)
+      [80, 320, 200, 14, "#6A6A78"],  // left MECH platform (cannon sits here)
+      [220, 420, 110, 14, "#6A6A78"], // lower-left ledge (next to ramp)
+      [380, 420, 110, 14, "#6A6A78"], // bottom-middle (SPRING sits here)
+      [490, 420, 310, 14, "#6A6A78"], // bottom-right boss platform
+      [340, 340, 150, 14, "#6A6A78"], // middle long platform (2 coins)
+      [520, 340, 100, 14, "#6A6A78"], // middle right (1 coin)
+      [600, 270, 120, 14, "#6A6A78"], // right middle (1 coin)
+      [680, 180, 120, 14, "#6A6A78"], // top-right (1 coin + flag)
     ],
     coins: [
-      [120, 430], [400, 430], [680, 430],
+      [85, 112],     // top-left platform
+      [380, 312],    // middle long, coin 1
+      [450, 312],    // middle long, coin 2
+      [555, 312],    // middle right
+      [635, 242],    // right middle
+      [720, 152],    // top-right
+      [255, 392],    // lower-left ledge (next to ramp)
+      [415, 80],     // HIGH — only reachable by bouncing on the spring
+      [560, 392],    // on the boss platform
     ],
-    enemies: [],
-    cannons: [],
-    flag: { x: 758, y: 412, width: 6, height: 48 },
+    enemies: [
+      // SPIKY BOSS — horned creature on the bottom-right platform
+      [680, 372, 490, 800, "#8E5BD1", 2, "boss-spiky"],
+    ],
+    cannons: [
+      // Left mech-robot: fires a bit faster than level 1's cannon
+      [180, 290, 120, "#888"],
+    ],
+    hazards: [
+      // Electric ceiling — don't jump too high or you'll get zapped!
+      [180, 0, 540, 28, "electric"],
+    ],
+    ramps: [
+      // Slide-down ramp on the ground, slope going down to the right
+      [165, 432, 50, 28, "right"],
+    ],
+    springs: [
+      // Bouncy pad on a low platform — launches you way up
+      [410, 416, 30, -22],
+    ],
+    flag: { x: 778, y: 132, width: 6, height: 48 },
   },
 ];
 
 // === ACTIVE LEVEL STATE ===
 // These get reassigned by loadLevel(); the main loop reads from them.
 let currentLevel = 0;
-let platforms, coins, enemies, cannons, flag, playerStart;
+let platforms, coins, enemies, cannons, hazards, ramps, springs, flag, playerStart;
 const collectedCoins = new Set();
 const bullets = [];
 const acidBalls = [];
@@ -119,6 +171,9 @@ function loadLevel(n) {
   coins = lvl.coins;
   enemies = lvl.enemies;
   cannons = lvl.cannons;
+  hazards = lvl.hazards || [];
+  ramps = lvl.ramps || [];
+  springs = lvl.springs || [];
   flag = lvl.flag;
   playerStart = lvl.playerStart;
 
@@ -169,13 +224,11 @@ function drawPlayer() {
 
 // === DRAW AN ENEMY ===
 function drawEnemy(e) {
-  const [x, y, lb, rb, color, hp, isBoss, initHp, dir, alive] = e;
+  const [x, y, lb, rb, color, hp, kind, initHp, dir, alive] = e;
   if (!alive) return;
 
-  if (isBoss) {
-    drawBoss(e);
-    return;
-  }
+  if (kind === "boss-toxic") { drawBoss(e); return; }
+  if (kind === "boss-spiky") { drawBossSpiky(e); return; }
 
   const w = 32, h = 28;
 
@@ -355,28 +408,239 @@ function drawBoss(e) {
   }
 }
 
-// === DRAW AN ACID BALL ===
+// === DRAW AN ACID / SPIKE BALL ===
 function drawAcidBall(a) {
-  // outer glow
+  if (a.spiky) {
+    // Spike ball — purple core with radiating spikes (boss-spiky's weapon)
+    const spin = (Date.now() / 50) % 360;
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.rotate((spin * Math.PI) / 180);
+    ctx.fillStyle = "#8E5BD1";
+    for (let i = 0; i < 8; i++) {
+      ctx.rotate(Math.PI / 4);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(11, -2);
+      ctx.lineTo(11, 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = "#5C3A8C";
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  // Default toxic acid ball — green blob
   ctx.fillStyle = "rgba(184, 230, 0, 0.4)";
   ctx.beginPath();
   ctx.arc(a.x, a.y, 11, 0, Math.PI * 2);
   ctx.fill();
-  // body
   ctx.fillStyle = "#B8E600";
   ctx.beginPath();
   ctx.arc(a.x, a.y, 7, 0, Math.PI * 2);
   ctx.fill();
-  // highlight
   ctx.fillStyle = "#E6FF80";
   ctx.beginPath();
   ctx.arc(a.x - 2.5, a.y - 2.5, 2.2, 0, Math.PI * 2);
   ctx.fill();
-  // dark drip trail
   ctx.fillStyle = "rgba(123, 160, 0, 0.5)";
   ctx.beginPath();
   ctx.arc(a.x + 6, a.y - 1, 2, 0, Math.PI * 2);
   ctx.fill();
+}
+
+// === DRAW THE SPIKY BOSS ===
+// Purple horned creature with antennae — second-level boss from the sketch.
+function drawBossSpiky(e) {
+  const x = e[0], y = e[1], hp = e[5];
+  const w = 64, h = 50;
+
+  // Body (rounded rectangle, dark purple)
+  ctx.fillStyle = e[4] || "#8E5BD1";
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y + h / 2 + 6, w / 2 - 2, h / 2 - 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#4F2C7B";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Cross-hatch texture on body
+  ctx.strokeStyle = "rgba(79, 44, 123, 0.6)";
+  ctx.lineWidth = 1;
+  for (let i = -2; i < 5; i++) {
+    ctx.beginPath();
+    ctx.moveTo(x + 8 + i * 8, y + h - 4);
+    ctx.lineTo(x + 8 + i * 8 + 14, y + 20);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + 8 + i * 8 + 14, y + h - 4);
+    ctx.lineTo(x + 8 + i * 8, y + 20);
+    ctx.stroke();
+  }
+
+  // Horns on top (4 spikes)
+  ctx.fillStyle = "#5C3A8C";
+  for (let i = 0; i < 4; i++) {
+    const hx = x + 10 + i * 14;
+    ctx.beginPath();
+    ctx.moveTo(hx, y + 12);
+    ctx.lineTo(hx + 5, y - 14);
+    ctx.lineTo(hx + 10, y + 12);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Antennae (two waving)
+  const wig = Math.sin(Date.now() / 250) * 4;
+  ctx.strokeStyle = "#5C3A8C";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x + 10, y - 4);
+  ctx.lineTo(x + 4 + wig, y - 18);
+  ctx.moveTo(x + w - 10, y - 4);
+  ctx.lineTo(x + w - 4 - wig, y - 18);
+  ctx.stroke();
+  ctx.fillStyle = "#FFD700";
+  ctx.beginPath();
+  ctx.arc(x + 4 + wig, y - 18, 2.5, 0, Math.PI * 2);
+  ctx.arc(x + w - 4 - wig, y - 18, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes — wide, angry
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(x + 14, y + 18, 10, 9);
+  ctx.fillRect(x + w - 24, y + 18, 10, 9);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(x + 16, y + 22, 4, 4);
+  ctx.fillRect(x + w - 22, y + 22, 4, 4);
+
+  // Toothy grin
+  ctx.fillStyle = "#FFFFFF";
+  ctx.strokeStyle = "#4F2C7B";
+  ctx.lineWidth = 1;
+  const mouthY = y + h - 6;
+  ctx.beginPath();
+  ctx.moveTo(x + 14, mouthY - 2);
+  for (let i = 0; i < 6; i++) {
+    ctx.lineTo(x + 14 + i * 6 + 3, mouthY + 5);
+    ctx.lineTo(x + 14 + (i + 1) * 6, mouthY - 2);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Whip-arm extending left (drawn behind, simple line + claw)
+  ctx.strokeStyle = "#5C3A8C";
+  ctx.lineWidth = 3;
+  const armSwing = Math.sin(Date.now() / 400) * 6;
+  ctx.beginPath();
+  ctx.moveTo(x + 4, y + 30);
+  ctx.lineTo(x - 22, y + 34 + armSwing);
+  ctx.lineTo(x - 36, y + 28 + armSwing);
+  ctx.stroke();
+  // claw
+  ctx.fillStyle = "#5C3A8C";
+  ctx.beginPath();
+  ctx.moveTo(x - 36, y + 28 + armSwing);
+  ctx.lineTo(x - 44, y + 24 + armSwing);
+  ctx.lineTo(x - 40, y + 32 + armSwing);
+  ctx.closePath();
+  ctx.fill();
+
+  // Damage indicator
+  if (hp === 1) {
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + w / 2, y + 14);
+    ctx.lineTo(x + w / 2 - 4, y + 26);
+    ctx.lineTo(x + w / 2 + 2, y + 36);
+    ctx.stroke();
+  }
+}
+
+// === DRAW A HAZARD (electric barrier) ===
+function drawHazard(h) {
+  const [x, y, w, height, kind] = h;
+  if (kind !== "electric") return;
+
+  // Dark cloud backdrop
+  ctx.fillStyle = "rgba(80, 60, 130, 0.5)";
+  ctx.fillRect(x, y, w, height);
+
+  // Animated zigzag lightning bolts
+  const t = Date.now() / 80;
+  ctx.strokeStyle = "#FFFF66";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  const seg = 24;
+  for (let bx = x; bx < x + w; bx += seg) {
+    const offset = Math.sin(t + bx * 0.04) * (height * 0.4);
+    ctx.moveTo(bx, y + height * 0.2 + offset);
+    ctx.lineTo(bx + seg / 2, y + height - 4);
+    ctx.lineTo(bx + seg, y + height * 0.2 + offset);
+  }
+  ctx.stroke();
+
+  // Spark dots flickering
+  ctx.fillStyle = "#FFFFFF";
+  for (let i = 0; i < 6; i++) {
+    const sx = x + ((i * 73 + Math.floor(t)) % w);
+    const sy = y + ((i * 11 + Math.floor(t * 2)) % (height - 4)) + 2;
+    ctx.fillRect(sx, sy, 2, 2);
+  }
+}
+
+// === DRAW A RAMP ===
+function drawRamp(r) {
+  const [x, y, w, h, dir] = r;
+  ctx.fillStyle = "#5C7A8C";
+  ctx.strokeStyle = "#2A3A48";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  if (dir === "right") {
+    // Tall on left, slope down to right
+    ctx.moveTo(x, y + h);
+    ctx.lineTo(x, y);
+    ctx.lineTo(x + w, y + h);
+  } else {
+    // Tall on right, slope down to left
+    ctx.moveTo(x, y + h);
+    ctx.lineTo(x + w, y);
+    ctx.lineTo(x + w, y + h);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Slide arrow
+  ctx.fillStyle = "#FFFFFF";
+  ctx.font = "bold 14px monospace";
+  ctx.fillText(dir === "right" ? "→" : "←", x + w / 2 - 6, y + h - 6);
+}
+
+// === DRAW A SPRING ===
+function drawSpring(s) {
+  const [x, y, w] = s;
+  // Black-and-white striped pad
+  const stripeW = 6;
+  for (let i = 0; i < Math.ceil(w / stripeW); i++) {
+    ctx.fillStyle = i % 2 === 0 ? "#222" : "#EEE";
+    ctx.fillRect(x + i * stripeW, y, Math.min(stripeW, w - i * stripeW), 4);
+  }
+  // Coil body underneath
+  ctx.strokeStyle = "#888";
+  ctx.lineWidth = 2;
+  const coilT = Math.floor(Date.now() / 200) % 2;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.ellipse(x + w / 2, y + 4 + i * (coilT ? 3 : 2), w / 3, 1.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 // === DRAW A CANNON ===
@@ -539,12 +803,13 @@ function update() {
     // -- Enemy patrol + collision --
     for (const e of enemies) {
       if (!e[9]) continue;
-      const isBoss = e[6];
+      const kind = e[6];
+      const isBoss = typeof kind === "string" && kind.startsWith("boss");
       const ew = isBoss ? 64 : 32;
       const eh = isBoss ? 50 : 28;
 
       if (isBoss) {
-        // Boss stands still and just spits.
+        // Bosses stand still and just attack.
         e[8] = -1;   // always face left
       } else {
         // Walkers patrol
@@ -553,13 +818,25 @@ function update() {
         if (e[0] + ew > e[3]) { e[0] = e[3] - ew; e[8] = -1; }
       }
 
-      // Boss spits one acid ball out of its mouth every ~bossFireRate frames
-      if (isBoss && frameCount % bossFireRate === 30) {
+      // Toxic boss spits acid balls horizontally out of its mouth
+      if (kind === "boss-toxic" && frameCount % bossFireRate === 30) {
         acidBalls.push({
-          x: e[0] + 4,             // left side of body, at the mouth
+          x: e[0] + 4,
           y: e[1] + eh - 14,
           vx: -3.5,
           vy: 0,
+        });
+      }
+
+      // Spiky boss launches arcing spike balls
+      if (kind === "boss-spiky" && frameCount % (bossFireRate + 30) === 50) {
+        acidBalls.push({
+          x: e[0] + 4,
+          y: e[1] + 12,
+          vx: -3.5,
+          vy: -3.5,
+          spiky: true,         // drawn differently
+          gravity: 0.18,
         });
       }
 
@@ -586,12 +863,13 @@ function update() {
       }
     }
 
-    // -- Acid balls fly straight to the left and hurt the player --
+    // -- Acid / spike balls fly and hurt the player --
     for (let i = acidBalls.length - 1; i >= 0; i--) {
       const a = acidBalls[i];
+      if (a.gravity) a.vy += a.gravity;
       a.x += a.vx;
       a.y += a.vy;
-      if (a.x < -20 || a.x > canvas.width + 20) {
+      if (a.x < -20 || a.x > canvas.width + 20 || a.y > canvas.height + 20) {
         acidBalls.splice(i, 1);
         continue;
       }
@@ -601,7 +879,47 @@ function update() {
       ) {
         acidBalls.splice(i, 1);
         respawn();
-        break;            // respawn() cleared acidBalls — bail out of this loop
+        break;
+      }
+    }
+
+    // -- Hazards (electric ceiling etc.): touch = instant respawn --
+    for (const [hx, hy, hw, hh] of hazards) {
+      if (
+        player.x + player.width > hx &&
+        player.x < hx + hw &&
+        player.y + player.height > hy &&
+        player.y < hy + hh
+      ) {
+        respawn();
+        break;
+      }
+    }
+
+    // -- Ramps: standing on / touching one slides the player horizontally --
+    for (const [rx, ry, rw, rh, dir] of ramps) {
+      if (
+        player.x + player.width > rx &&
+        player.x < rx + rw &&
+        player.y + player.height > ry &&
+        player.y < ry + rh + 4
+      ) {
+        const slide = dir === "left" ? -3.5 : 3.5;
+        player.x += slide;
+      }
+    }
+
+    // -- Springs: stepping on top launches the player upward --
+    for (const [sx, sy, sw, jump] of springs) {
+      if (
+        player.x + player.width > sx &&
+        player.x < sx + sw &&
+        player.y + player.height >= sy &&
+        player.y + player.height <= sy + 10 &&
+        player.speedY >= 0
+      ) {
+        player.y = sy - player.height;
+        player.speedY = jump;       // big upward kick
       }
     }
 
@@ -678,9 +996,20 @@ function update() {
     }
   }
 
-  // Grass on ground
-  ctx.fillStyle = "#6DBE45";
-  ctx.fillRect(0, 460, 800, 6);
+  // Grass on ground (only level 1 — other levels have their own ground color)
+  if (currentLevel === 0) {
+    ctx.fillStyle = "#6DBE45";
+    ctx.fillRect(0, 460, 800, 6);
+  }
+
+  // Ramps (drawn after platforms so they sit on top visually)
+  for (const r of ramps) drawRamp(r);
+
+  // Springs
+  for (const s of springs) drawSpring(s);
+
+  // Hazards (electric, etc.)
+  for (const h of hazards) drawHazard(h);
 
   // Flag
   drawFlag();
