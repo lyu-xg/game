@@ -211,6 +211,7 @@ const levels = [
       [0, 460, 800, 40, "#0A0A1A"],   // ocean floor (mostly hidden by water)
       [10, 370, 110, 14, "#6A6A78"],  // player start platform
       [20, 110, 300, 14, "#6A6A78"],  // BOSS platform (top-left)
+      [220, 395, 130, 14, "#6A6A78"], // RESCUE platform just above water — climb out here
       [380, 290, 90, 14, "#6A6A78"],  // middle jumping platform
       [500, 230, 90, 14, "#6A6A78"],  // higher
       [640, 170, 100, 14, "#6A6A78"], // upper-right
