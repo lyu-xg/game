@@ -272,7 +272,14 @@ function loadLevel(n) {
   player.speedY = 0;
 }
 
-loadLevel(0);
+// Honor ?level=N in the URL so screenshots/links can jump straight into a level.
+const _initialLevel = (() => {
+  const m = location.search.match(/[?&]level=(\d+)/);
+  if (!m) return 0;
+  const idx = parseInt(m[1], 10) - 1;
+  return idx >= 0 && idx < levels.length ? idx : 0;
+})();
+loadLevel(_initialLevel);
 
 // === DRAW THE PLAYER ===
 function drawPlayer() {
