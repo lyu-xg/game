@@ -50,6 +50,7 @@ const gravity = 0.6;
 //   hazard:   [x, y, width, height, kind]    kind ∈ "electric"  (instant death)
 //   ramp:     [x, y, width, height, slideDir]   slideDir ∈ "right" | "left"
 //   spring:   [x, y, width, jumpPower]        — sits on top of a platform
+//   water:    { y, height, color }            — region where the player swims
 //   flag:     { x, y, width, height }
 const levels = [
   // -------- LEVEL 1 (the kid's first notebook sketch) --------
@@ -197,6 +198,45 @@ const levels = [
     ],
     flag: { x: 758, y: 412, width: 6, height: 48 },
   },
+
+  // -------- LEVEL 4 (space / alien boss — fourth sketch) --------
+  // Skeleton pass — boss + swim + crocodile + electric orb get added next.
+  {
+    name: "Level 4",
+    skyColor: "#000000",
+    showClouds: false,
+    platformGrass: false,
+    playerStart: { x: 30, y: 330 },
+    platforms: [
+      [0, 460, 800, 40, "#0A0A1A"],   // ocean floor (mostly hidden by water)
+      [10, 370, 110, 14, "#6A6A78"],  // player start platform
+      [20, 110, 300, 14, "#6A6A78"],  // BOSS platform (top-left)
+      [380, 290, 90, 14, "#6A6A78"],  // middle jumping platform
+      [500, 230, 90, 14, "#6A6A78"],  // higher
+      [640, 170, 100, 14, "#6A6A78"], // upper-right
+    ],
+    coins: [],
+    enemies: [
+      // BIG BOSS — purple alien with yellow arms, holds a pink ball + grey
+      // cannon. Patrols the top platform, shoots pink energy balls.
+      [80, 42, 20, 320, "#D32EBB", 3, "boss-alien"],
+      // CROCODILE — patrols in the water. Body bites, back spikes also kill;
+      // cannot be stomped. Unkillable hazard, like the snake.
+      [400, 400, 180, 760, "#2A5840", 99, "crocodile"],
+    ],
+    cannons: [],
+    hazards: [
+      // Electric orb (yellow ball + spinning purple spikes). Touch = death.
+      [560, 240, 60, 60, "electric-orb"],
+    ],
+    ramps: [],
+    springs: [],
+    fireSpawners: [],
+    icicles: [],
+    water: { y: 400, height: 100, color: "rgba(40, 90, 200, 0.55)" },
+    flag: { x: 758, y: 122, width: 6, height: 48 },
+    winCondition: "kill-boss",
+  },
 ];
 
 // === ACTIVE LEVEL STATE ===
@@ -314,7 +354,9 @@ function drawEnemy(e) {
 
   if (kind === "boss-toxic") { drawBoss(e); return; }
   if (kind === "boss-spiky") { drawBossSpiky(e); return; }
+  if (kind === "boss-alien") { drawBossAlien(e); return; }
   if (kind === "snake") { drawSnake(e); return; }
+  if (kind === "crocodile") { drawCrocodile(e); return; }
 
   const w = 32, h = 28;
 
@@ -494,8 +536,25 @@ function drawBoss(e) {
   }
 }
 
-// === DRAW AN ACID / SPIKE BALL ===
+// === DRAW AN ACID / SPIKE / PINK BALL ===
 function drawAcidBall(a) {
+  if (a.pink) {
+    // Pink energy ball (alien boss weapon)
+    ctx.fillStyle = "rgba(255, 64, 208, 0.45)";
+    ctx.beginPath();
+    ctx.arc(a.x, a.y, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#FF40D0";
+    ctx.beginPath();
+    ctx.arc(a.x, a.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#FFCCEE";
+    ctx.beginPath();
+    ctx.arc(a.x - 2, a.y - 2, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
   if (a.spiky) {
     // Spike ball — purple core with radiating spikes (boss-spiky's weapon)
     const spin = (Date.now() / 50) % 360;
@@ -649,9 +708,186 @@ function drawBossSpiky(e) {
   }
 }
 
+// === DRAW THE ALIEN BOSS ===
+// Big magenta blob with grey spots, white head with two purple eyes, two yellow
+// arms — one holding a pink energy ball, one holding a grey cannon.
+function drawBossAlien(e) {
+  const x = e[0], y = e[1], hp = e[5], dir = e[8] || 1;
+  const w = 70, h = 70;
+  const t = Date.now();
+  const breath = Math.sin(t / 600) * 1.5;
+  const wave = Math.sin(t / 220) * 3;
+
+  // Body — magenta blob
+  ctx.fillStyle = "#D32EBB";
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y + h * 0.62 + breath, w / 2 - 4, h * 0.34, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#7A0A6E";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Grey spots scattered on body
+  ctx.fillStyle = "#888892";
+  const spots = [[16, 50, 6], [40, 56, 5], [28, 44, 4], [50, 50, 5], [22, 60, 3], [44, 64, 4]];
+  for (const [sx, sy, sr] of spots) {
+    ctx.beginPath();
+    ctx.arc(x + sx, y + sy + breath, sr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Head — pale, sits on top of body
+  ctx.fillStyle = "#F0E8D8";
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y + 18, w / 2 - 12, 14, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#8A7A6A";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Two purple eyes (track player direction)
+  const eyeShift = dir > 0 ? 1 : -1;
+  ctx.fillStyle = "#D32EBB";
+  ctx.beginPath();
+  ctx.arc(x + w / 2 - 9 + eyeShift, y + 16, 4, 0, Math.PI * 2);
+  ctx.arc(x + w / 2 + 7 + eyeShift, y + 16, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.arc(x + w / 2 - 9 + eyeShift, y + 16, 1.8, 0, Math.PI * 2);
+  ctx.arc(x + w / 2 + 7 + eyeShift, y + 16, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Frowny mouth
+  ctx.strokeStyle = "#5A3848";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(x + w / 2, y + 30, 4, Math.PI * 1.15, Math.PI * 1.85);
+  ctx.stroke();
+
+  // --- Arms: yellow, swing while walking ---
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "#FFE040";
+  ctx.lineWidth = 6;
+
+  // Ball-holding arm (always on the LEFT visually)
+  ctx.beginPath();
+  ctx.moveTo(x + 16, y + 40);
+  ctx.lineTo(x - 4, y + 50 + wave);
+  ctx.stroke();
+  // Pink energy ball in hand
+  ctx.fillStyle = "rgba(255, 64, 208, 0.5)";
+  ctx.beginPath();
+  ctx.arc(x - 8, y + 54 + wave, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#FF40D0";
+  ctx.beginPath();
+  ctx.arc(x - 8, y + 54 + wave, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#FFCCEE";
+  ctx.beginPath();
+  ctx.arc(x - 10, y + 52 + wave, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Cannon arm (always on the RIGHT visually)
+  ctx.strokeStyle = "#FFE040";
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(x + w - 16, y + 40);
+  ctx.lineTo(x + w + 4, y + 44 - wave);
+  ctx.stroke();
+  // Cannon barrel (grey)
+  ctx.fillStyle = "#555";
+  ctx.fillRect(x + w, y + 36 - wave, 20, 14);
+  ctx.fillStyle = "#888";
+  ctx.fillRect(x + w + 2, y + 38 - wave, 16, 4);   // highlight
+  ctx.fillStyle = "#222";
+  ctx.fillRect(x + w + 18, y + 39 - wave, 4, 8);   // dark muzzle
+
+  // Damage cracks
+  if (hp <= 2) {
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + w / 2 + 6, y + 34);
+    ctx.lineTo(x + w / 2 - 2, y + 46);
+    ctx.lineTo(x + w / 2 + 4, y + 58);
+    ctx.stroke();
+  }
+  if (hp <= 1) {
+    ctx.beginPath();
+    ctx.moveTo(x + w / 2 - 18, y + 40);
+    ctx.lineTo(x + w / 2 - 10, y + 52);
+    ctx.lineTo(x + w / 2 - 18, y + 64);
+    ctx.stroke();
+  }
+}
+
 // === DRAW A HAZARD ===
 function drawHazard(h) {
   const [x, y, w, height, kind] = h;
+
+  if (kind === "electric-orb") {
+    // Spinning purple spike crown around a yellow electric ball
+    const cx = x + w / 2, cy = y + height / 2;
+    const r = Math.min(w, height) / 2 - 4;
+    const t = Date.now() / 70;
+
+    // Spike crown
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(t * 0.03);
+    ctx.fillStyle = "#A040D0";
+    ctx.strokeStyle = "#5A1A88";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 10; i++) {
+      ctx.rotate((Math.PI * 2) / 10);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(r + 14, -3);
+      ctx.lineTo(r + 14, 3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Outer glow
+    ctx.fillStyle = "rgba(255, 220, 0, 0.4)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Yellow ball
+    ctx.fillStyle = "#FFEC00";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#B8A800";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Electric arcs inside
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a1 = ((Math.PI * 2) / 6) * i + t * 0.04;
+      const a2 = a1 + Math.PI * 0.4;
+      const r1 = r * 0.3;
+      const r2 = r * 0.85;
+      ctx.moveTo(cx + Math.cos(a1) * r1, cy + Math.sin(a1) * r1);
+      ctx.lineTo(cx + Math.cos(a2) * r2, cy + Math.sin(a2) * r2);
+    }
+    ctx.stroke();
+
+    // Bright center
+    ctx.fillStyle = "#FFFFCC";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
 
   if (kind === "spike") {
     // Static spike wall (right-side stairs in level 3)
@@ -831,6 +1067,121 @@ function drawSnake(e) {
     ctx.lineTo(hx - 22, hy + 12);
     ctx.stroke();
   }
+}
+
+// === DRAW THE CROCODILE ===
+// Long dark-green body with a saw-tooth spiky back. Mouth at the leading edge
+// opens and snaps shut. Drawn flipped based on patrol direction.
+function drawCrocodile(e) {
+  const x = e[0], y = e[1], dir = e[8];
+  const w = 80, h = 40;
+  const t = Date.now();
+  const chomp = (Math.sin(t / 350) + 1) / 2;   // 0..1 mouth-open factor
+
+  ctx.save();
+  // Default the head points LEFT. Flip horizontally when patrolling right.
+  if (dir > 0) {
+    ctx.translate(x + w, y);
+    ctx.scale(-1, 1);
+  } else {
+    ctx.translate(x, y);
+  }
+
+  // Body (lower 2/3 of bounding box)
+  const bodyTop = h * 0.28;
+  ctx.fillStyle = e[4] || "#2A5840";
+  ctx.beginPath();
+  ctx.ellipse(w / 2, bodyTop + 14, w / 2 - 4, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#11261A";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Spiky back (saw-tooth pointing UP, in the top 1/3)
+  ctx.fillStyle = "#1A3826";
+  ctx.strokeStyle = "#0E2418";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const sx = 16 + i * 7;
+    ctx.moveTo(sx, bodyTop + 4);
+    ctx.lineTo(sx + 3.5, bodyTop - 8);
+    ctx.lineTo(sx + 7, bodyTop + 4);
+  }
+  ctx.fill();
+  ctx.stroke();
+
+  // Tail (right side narrows)
+  ctx.fillStyle = e[4] || "#2A5840";
+  ctx.beginPath();
+  ctx.moveTo(w - 8, bodyTop + 10);
+  ctx.lineTo(w + 4, bodyTop + 14);
+  ctx.lineTo(w - 8, bodyTop + 18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#11261A";
+  ctx.stroke();
+
+  // Snout — extends LEFT, opens with chomp
+  const openY = chomp * 7;
+  ctx.fillStyle = e[4] || "#2A5840";
+  // upper jaw
+  ctx.beginPath();
+  ctx.moveTo(2, bodyTop + 12 - openY);
+  ctx.lineTo(20, bodyTop + 8);
+  ctx.lineTo(20, bodyTop + 14);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // lower jaw
+  ctx.beginPath();
+  ctx.moveTo(2, bodyTop + 14 + openY);
+  ctx.lineTo(20, bodyTop + 18);
+  ctx.lineTo(20, bodyTop + 14);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Mouth interior (when open)
+  if (chomp > 0.3) {
+    ctx.fillStyle = "#3F1A1A";
+    ctx.beginPath();
+    ctx.moveTo(2, bodyTop + 12 - openY);
+    ctx.lineTo(20, bodyTop + 14);
+    ctx.lineTo(2, bodyTop + 14 + openY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Teeth (white triangles, top + bottom)
+  ctx.fillStyle = "#FFFFFF";
+  for (let i = 0; i < 5; i++) {
+    const tx = 4 + i * 3;
+    ctx.beginPath();
+    ctx.moveTo(tx, bodyTop + 12 - openY * 0.6);
+    ctx.lineTo(tx + 1.5, bodyTop + 14);
+    ctx.lineTo(tx + 3, bodyTop + 12 - openY * 0.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(tx, bodyTop + 14 + openY * 0.6);
+    ctx.lineTo(tx + 1.5, bodyTop + 14);
+    ctx.lineTo(tx + 3, bodyTop + 14 + openY * 0.6);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Eye on top of body
+  ctx.fillStyle = "#FFEE60";
+  ctx.beginPath();
+  ctx.arc(28, bodyTop + 6, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.arc(28, bodyTop + 6, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
 }
 
 // === DRAW A FALLING FIREBALL ===
@@ -1033,23 +1384,37 @@ function update() {
   }
 
   if (!levelClearAt && !gameWon) {
+    // -- Are we in water? --
+    const water = levels[currentLevel].water;
+    const inWater = !!water && (player.y + player.height > water.y + 4);
+
     // -- Move left/right --
+    const hSpeed = inWater ? player.speed * 0.75 : player.speed;
     if (keys["ArrowLeft"] || keys["a"]) {
-      player.speedX = -player.speed;
+      player.speedX = -hSpeed;
     } else if (keys["ArrowRight"] || keys["d"]) {
-      player.speedX = player.speed;
+      player.speedX = hSpeed;
     } else {
       player.speedX = 0;
     }
 
-    // -- Jump --
-    if ((keys["ArrowUp"] || keys["w"] || keys[" "]) && player.onGround) {
+    // -- Jump / swim up --
+    const upHeld = keys["ArrowUp"] || keys["w"] || keys[" "];
+    if (inWater) {
+      // Swim: holding up gives steady upward push (no need to be on ground)
+      if (upHeld) player.speedY = -3.5;
+    } else if (upHeld && player.onGround) {
       player.speedY = player.jumpPower;
       player.onGround = false;
     }
 
-    // -- Gravity --
-    player.speedY += gravity;
+    // -- Gravity / buoyancy --
+    if (inWater) {
+      player.speedY *= 0.86;          // drag
+      player.speedY += 0.18;          // mild sink
+    } else {
+      player.speedY += gravity;
+    }
     player.x += player.speedX;
     player.y += player.speedY;
 
@@ -1097,12 +1462,24 @@ function update() {
       if (!e[9]) continue;
       const kind = e[6];
       const isBoss = typeof kind === "string" && kind.startsWith("boss");
+      const isAlien = kind === "boss-alien";
       const isSnake = kind === "snake";
-      const ew = isBoss ? 64 : isSnake ? 56 : 32;
-      const eh = isBoss ? 50 : isSnake ? 36 : 28;
+      const isCroc = kind === "crocodile";
+      const ew = isAlien ? 70 : isBoss ? 64 : isCroc ? 80 : isSnake ? 56 : 32;
+      const eh = isAlien ? 70 : isBoss ? 50 : isCroc ? 40 : isSnake ? 36 : 28;
 
-      if (isBoss || kind === "snake") {
-        // Bosses and snakes stand still.
+      if (isAlien) {
+        // Alien boss patrols its platform like a walker, just slower.
+        e[0] += 1.2 * e[8];
+        if (e[0] < e[2]) { e[0] = e[2]; e[8] = 1; }
+        if (e[0] + ew > e[3]) { e[0] = e[3] - ew; e[8] = -1; }
+      } else if (isCroc) {
+        // Crocodile patrols in the water.
+        e[0] += 1.0 * e[8];
+        if (e[0] < e[2]) { e[0] = e[2]; e[8] = 1; }
+        if (e[0] + ew > e[3]) { e[0] = e[3] - ew; e[8] = -1; }
+      } else if (isBoss || isSnake) {
+        // Other bosses and snakes stand still.
         e[8] = -1;
       } else {
         // Walkers patrol
@@ -1133,6 +1510,18 @@ function update() {
         });
       }
 
+      // Alien boss fires a pink energy ball horizontally in its facing dir
+      if (isAlien && frameCount % 90 === 30) {
+        const facing = e[8] > 0 ? 1 : -1;
+        acidBalls.push({
+          x: facing > 0 ? e[0] + ew + 20 : e[0] - 20,
+          y: e[1] + 42,
+          vx: 3.5 * facing,
+          vy: 0,
+          pink: true,
+        });
+      }
+
       // Hit test against player
       const hit =
         player.x + player.width > e[0] &&
@@ -1141,6 +1530,11 @@ function update() {
         player.y < e[1] + eh;
 
       if (hit) {
+        if (isCroc) {
+          // Crocodile cannot be stomped — back is spiky, mouth bites.
+          respawn();
+          break;
+        }
         const stomp = player.speedY > 0 && player.y + player.height < e[1] + 16;
         if (stomp) {
           e[5] -= 1;
@@ -1309,8 +1703,16 @@ function update() {
       }
     }
 
-    // -- Flag check --
-    if (
+    // -- Win check --
+    const winMode = levels[currentLevel].winCondition || "flag";
+    if (winMode === "kill-boss") {
+      // Cleared when all bosses are dead.
+      const alive = enemies.some(en => {
+        const k = en[6];
+        return typeof k === "string" && k.startsWith("boss") && en[9];
+      });
+      if (!alive) levelClearAt = Date.now();
+    } else if (
       collectedCoins.size === coins.length &&
       player.x + player.width > flag.x &&
       player.x < flag.x + flag.width + 20 &&
@@ -1332,9 +1734,11 @@ function update() {
   ctx.fillStyle = levels[currentLevel].skyColor || "#87CEEB";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Clouds
+  // Clouds (skip for dark/space levels)
+  const lvlObj = levels[currentLevel];
+  const showClouds = lvlObj.showClouds !== false;
   ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-  for (const [cx, cy, cw, ch] of clouds) {
+  if (showClouds) for (const [cx, cy, cw, ch] of clouds) {
     const drift = (Date.now() / 50 + cx) % (canvas.width + 200) - 100;
     ctx.beginPath();
     ctx.arc(drift, cy, cw / 2, 0, Math.PI * 2);
@@ -1343,11 +1747,12 @@ function update() {
     ctx.fill();
   }
 
-  // Platforms
+  // Platforms (grass-top only if the level wants it)
+  const grassTop = lvlObj.platformGrass !== false;
   for (const [px, py, pw, ph, pcolor] of platforms) {
     ctx.fillStyle = pcolor;
     ctx.fillRect(px, py, pw, ph);
-    if (ph < 20) {
+    if (ph < 20 && grassTop) {
       ctx.fillStyle = "#6DBE45";
       ctx.fillRect(px, py, pw, 4);
     }
@@ -1377,8 +1782,8 @@ function update() {
   // Falling fireballs
   for (const f of fireballs) drawFireball(f);
 
-  // Flag
-  drawFlag();
+  // Flag (not shown when the win condition is killing the boss)
+  if ((lvlObj.winCondition || "flag") !== "kill-boss") drawFlag();
 
   // Coins
   for (let i = 0; i < coins.length; i++) {
@@ -1400,6 +1805,23 @@ function update() {
   // Player
   drawPlayer();
 
+  // Water overlay (after player so player gets the underwater tint)
+  const water = lvlObj.water;
+  if (water) {
+    ctx.fillStyle = water.color || "rgba(40, 90, 200, 0.55)";
+    ctx.fillRect(0, water.y, canvas.width, water.height);
+    // Animated surface ripples
+    ctx.strokeStyle = "rgba(180, 220, 255, 0.6)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let wx = 0; wx < canvas.width; wx += 12) {
+      const dy = Math.sin(Date.now() / 300 + wx * 0.07) * 2;
+      if (wx === 0) ctx.moveTo(wx, water.y + dy);
+      else ctx.lineTo(wx, water.y + dy);
+    }
+    ctx.stroke();
+  }
+
   // HUD
   ctx.fillStyle = "#FFFFFF";
   ctx.strokeStyle = "#000000";
@@ -1416,13 +1838,18 @@ function update() {
   ctx.strokeText(lvlText, canvas.width - lvlWidth - 16, 28);
   ctx.fillText(lvlText, canvas.width - lvlWidth - 16, 28);
 
-  // Hint when all coins collected
-  if (collectedCoins.size === coins.length && !levelClearAt && !gameWon) {
-    ctx.fillStyle = "#FFFF66";
-    ctx.font = "bold 16px monospace";
-    const tip = "→ Reach the flag!";
-    ctx.strokeText(tip, 16, 54);
-    ctx.fillText(tip, 16, 54);
+  // Hint: changes based on win mode
+  if (!levelClearAt && !gameWon) {
+    const winMode2 = lvlObj.winCondition || "flag";
+    let tip = "";
+    if (winMode2 === "kill-boss") tip = "→ Defeat the boss!";
+    else if (collectedCoins.size === coins.length) tip = "→ Reach the flag!";
+    if (tip) {
+      ctx.fillStyle = "#FFFF66";
+      ctx.font = "bold 16px monospace";
+      ctx.strokeText(tip, 16, 54);
+      ctx.fillText(tip, 16, 54);
+    }
   }
 
   // Per-level clear banner
