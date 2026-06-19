@@ -171,8 +171,8 @@ const levels = [
       // SNAKE — chomps; eating the player sends all collected coins back to
       // their original positions. Stompable (1 hp).
       [320, 388, 290, 410, "#7BA847", 1, "snake"],
-      // Walker patrolling the top-middle long platform
-      [380, 112, 360, 490, "#E07533", 1, "walker"],
+      // Walker on the right-column mid platform (next to the coin)
+      [420, 292, 410, 460, "#E07533", 1, "walker"],
     ],
     cannons: [],
     hazards: [
