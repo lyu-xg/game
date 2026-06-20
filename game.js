@@ -270,11 +270,11 @@ const levels = [
     springs: [],
     fireSpawners: [],
     icicles: [],
-    // RED egg → hatches a red helper pet (same as level 4, kid's red drawing).
+    // RED egg → hatches the grey VOLCANO pet that erupts lava (kid's drawing).
     egg: {
       x: 612, y: 216,
       color: "#D8362A", edgeColor: "#8A2418", spotColor: "#9A9AA2",
-      petBody: "#E0483A", petEdge: "#8A2A20",
+      petKind: "volcano", petBeam: "#FF5522",
     },
     flag: { x: 740, y: 402, width: 6, height: 48 },
     winCondition: "kill-boss",
@@ -1634,9 +1634,10 @@ function drawEgg(eg) {
   }
 }
 
-// === DRAW THE PET === (the cracked-egg robot the kid drew)
+// === DRAW THE PET === (dispatch by kind; default is the cracked-egg robot)
 function drawPet(p) {
   if (!p.alive) return;        // hidden while waiting to respawn
+  if (p.kind === "volcano") { drawPetVolcano(p); return; }
   const t = Date.now();
   const x = p.x, y = p.y + Math.sin(t / 300) * 1.5;
   const cx = x + 14;
@@ -1734,12 +1735,108 @@ function drawPet(p) {
   }
 }
 
-// === DRAW A PET BEAM === (yellow lightning bolt)
+// === DRAW THE VOLCANO PET === (level 5 red egg — grey volcano erupting lava)
+function drawPetVolcano(p) {
+  const t = Date.now();
+  const x = p.x, y = p.y + Math.sin(t / 300) * 1.5;
+  const cx = x + 14;
+  const grey = "#7C7C86", greyDark = "#5A5A64", lava = "#D8362A", lavaHot = "#FF7A33";
+
+  // --- Red lava base it stands on ---
+  ctx.fillStyle = lava;
+  ctx.beginPath();
+  ctx.moveTo(x - 4, y + 28);
+  ctx.lineTo(cx, y + 21);
+  ctx.lineTo(x + 32, y + 28);
+  ctx.lineTo(cx, y + 30);
+  ctx.closePath();
+  ctx.fill();
+
+  // --- Arms: grey fists with red flame fingers, raised on each side ---
+  for (const side of [-1, 1]) {
+    const ax = cx + side * 15, ay = y + 13;
+    ctx.strokeStyle = greyDark;
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(cx + side * 8, y + 14);
+    ctx.lineTo(ax, ay);
+    ctx.stroke();
+    // flame fingers
+    ctx.fillStyle = lava;
+    for (let f = -1; f <= 2; f++) {
+      const fa = side * 0.6 - 1.4 + f * 0.5;
+      const flick = 3 + Math.sin(t / 90 + f + side) * 1.5;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax + Math.cos(fa) * (4 + flick), ay + Math.sin(fa) * (4 + flick));
+      ctx.lineTo(ax + Math.cos(fa + 0.4) * 3, ay + Math.sin(fa + 0.4) * 3);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // grey fist
+    ctx.fillStyle = grey;
+    ctx.beginPath();
+    ctx.arc(ax, ay, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // --- Erupting lava out of the crater (flickering red/orange flames) ---
+  for (let i = -1; i <= 1; i++) {
+    const fh = 9 + Math.sin(t / 110 + i * 2) * 4;
+    ctx.fillStyle = i === 0 ? lavaHot : lava;
+    ctx.beginPath();
+    ctx.moveTo(cx + i * 5 - 3, y + 4);
+    ctx.lineTo(cx + i * 5, y + 4 - fh);
+    ctx.lineTo(cx + i * 5 + 3, y + 4);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // --- Grey volcano cone (wide bottom, narrow crater on top) ---
+  ctx.fillStyle = grey;
+  ctx.strokeStyle = greyDark;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x + 1, y + 23);
+  ctx.lineTo(x + 9, y + 4);
+  ctx.lineTo(x + 19, y + 4);
+  ctx.lineTo(x + 27, y + 23);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // --- Red lava spots running down the cone ---
+  ctx.fillStyle = lava;
+  for (const [sx, sy, sr] of [[14, 9, 2.6], [10, 16, 2], [18, 15, 2], [14, 21, 2.2]]) {
+    ctx.beginPath();
+    ctx.arc(x + sx, y + sy, sr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // --- Little eyes so it reads as a creature ---
+  ctx.fillStyle = "#1A1A1A";
+  ctx.beginPath();
+  ctx.arc(cx - 3, y + 13, 1.6, 0, Math.PI * 2);
+  ctx.arc(cx + 3, y + 13, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- HP pips above the head (only once hurt) ---
+  if (p.hp < p.maxHp) {
+    const startX = cx - (p.maxHp * 7 - 2) / 2;
+    for (let i = 0; i < p.maxHp; i++) {
+      ctx.fillStyle = i < p.hp ? "#3DDC5A" : "#444";
+      ctx.fillRect(startX + i * 7, y - 12, 5, 3);
+    }
+  }
+}
+
+// === DRAW A PET BEAM === (lightning bolt; color set by the pet)
 function drawPetBeam(b) {
   const ang = Math.atan2(b.vy, b.vx);
   const nx = Math.cos(ang), ny = Math.sin(ang);
   const px = -ny, py = nx;        // perpendicular, for the zigzag
-  ctx.strokeStyle = "#FFE800";
+  ctx.strokeStyle = b.color || "#FFE800";
   ctx.lineWidth = 2.5;
   ctx.lineCap = "round";
   ctx.beginPath();
@@ -2038,7 +2135,7 @@ function update() {
       } else if (egg.state === "hatching" && Date.now() - egg.touchedAt > 3000) {
         egg.state = "hatched";
         pet = { x: egg.x, y: egg.y - 6, hp: 3, maxHp: 3, alive: true, deadAt: 0, fireCd: 30,
-                body: egg.petBody, edge: egg.petEdge };
+                kind: egg.petKind, body: egg.petBody, edge: egg.petEdge, beamColor: egg.petBeam };
       }
     }
 
@@ -2071,7 +2168,7 @@ function update() {
             const dx = (target[0] + tw / 2) - px;
             const dy = (target[1] + 35) - py;
             const d = Math.hypot(dx, dy) || 1;
-            petBeams.push({ x: px, y: py, vx: dx / d * 6, vy: dy / d * 6 });
+            petBeams.push({ x: px, y: py, vx: dx / d * 6, vy: dy / d * 6, color: pet.beamColor });
             pet.fireCd = 55;
           }
         }
