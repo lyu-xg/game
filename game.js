@@ -237,7 +237,7 @@ const levels = [
     water: { y: 400, height: 100, color: "rgba(40, 90, 200, 0.55)" },
     // EGG — touch it and wait 3 seconds; it hatches into a pet that helps you
     // fight the boss. If the pet dies it respawns next to you. (Kid: move x/y!)
-    egg: { x: 405, y: 256 },
+    eggs: [{ x: 405, y: 256 }],
     flag: { x: 758, y: 122, width: 6, height: 48 },
     winCondition: "kill-boss",
   },
@@ -270,12 +270,21 @@ const levels = [
     springs: [],
     fireSpawners: [],
     icicles: [],
-    // RED egg → hatches the grey VOLCANO pet that erupts lava (kid's drawing).
-    egg: {
-      x: 612, y: 216,
-      color: "#D8362A", edgeColor: "#8A2418", spotColor: "#9A9AA2",
-      petKind: "volcano", petBeam: "#FF5522",
-    },
+    eggs: [
+      // RED egg → grey VOLCANO pet that erupts lava (on the right platform).
+      {
+        x: 612, y: 216,
+        color: "#D8362A", edgeColor: "#8A2418", spotColor: "#9A9AA2",
+        petKind: "volcano", petBeam: "#FF5522",
+      },
+      // GREEN egg → leaf-eared pet. Sits on the ground in the bottom-right
+      // corner, behind where the centipede starts its patrol.
+      {
+        x: 720, y: 426,
+        color: "#5BD94A", edgeColor: "#2E7A22", spotColor: "#1F5418",
+        petKind: "leaf", petBeam: "#7CFF4A",
+      },
+    ],
     flag: { x: 740, y: 402, width: 6, height: 48 },
     winCondition: "kill-boss",
   },
@@ -294,11 +303,11 @@ const fireballs = [];
 // EGG + PETS: touching an egg (after 3s) hatches a helper pet that shoots the
 // boss. Pets you've hatched FOLLOW YOU into later levels — but you can only ever
 // have MAX_PETS at once.
-// egg: null when the level has no egg, else { x, y, state, touchedAt }.
+// eggs: array of the current level's eggs, each { x, y, state, touchedAt, ... }.
 //   state: "idle" → "hatching" (3s timer) → "hatched".
 // pets: array of { x, y, hp, maxHp, alive, deadAt, fireCd, kind, ... }.
 const MAX_PETS = 3;
-let egg = null;
+let eggs = [];
 let pets = [];
 const petBeams = [];
 let frameCount = 0;
@@ -355,7 +364,7 @@ function loadLevel(n) {
   coinState = coins.map(c => [c[0], c[1]]);
 
   // Egg resets each level; PETS carry over (they follow you to the next level).
-  egg = lvl.egg ? { ...lvl.egg, state: "idle", touchedAt: 0 } : null;
+  eggs = (lvl.eggs || []).map(e => ({ ...e, state: "idle", touchedAt: 0 }));
   petBeams.length = 0;
   // Bring carried-over pets back to life and snap them next to the new start.
   for (const p of pets) {
@@ -1648,6 +1657,7 @@ function drawEgg(eg) {
 function drawPet(p) {
   if (!p.alive) return;        // hidden while waiting to respawn
   if (p.kind === "volcano") { drawPetVolcano(p); return; }
+  if (p.kind === "leaf") { drawPetLeaf(p); return; }
   const t = Date.now();
   const x = p.x, y = p.y + Math.sin(t / 300) * 1.5;
   const cx = x + 14;
@@ -1837,6 +1847,120 @@ function drawPetVolcano(p) {
     for (let i = 0; i < p.maxHp; i++) {
       ctx.fillStyle = i < p.hp ? "#3DDC5A" : "#444";
       ctx.fillRect(startX + i * 7, y - 12, 5, 3);
+    }
+  }
+}
+
+// === DRAW THE LEAF PET === (level 5 green egg — leaf-eared fanged monster)
+function drawPetLeaf(p) {
+  const t = Date.now();
+  const x = p.x, y = p.y + Math.sin(t / 300) * 1.5;
+  const cx = x + 14;
+  const green = "#5BD94A", dark = "#2E7A22", darker = "#1F5418";
+
+  // --- Two tall leaf ears with veins ---
+  ctx.lineWidth = 1;
+  for (const s of [-1, 1]) {
+    const bx = cx + s * 4, by = y + 6;
+    const tx = cx + s * 15 + Math.sin(t / 320) * 1.5 * s, ty = y - 16;
+    const dx = tx - bx, dy = ty - by, len = Math.hypot(dx, dy) || 1;
+    const pxw = -dy / len, pyw = dx / len, hw = 4.5;
+    const m1x = bx + dx * 0.5 + pxw * hw, m1y = by + dy * 0.5 + pyw * hw;
+    const m2x = bx + dx * 0.5 - pxw * hw, m2y = by + dy * 0.5 - pyw * hw;
+    ctx.fillStyle = green;
+    ctx.strokeStyle = dark;
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.quadraticCurveTo(m1x, m1y, tx, ty);
+    ctx.quadraticCurveTo(m2x, m2y, bx, by);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // central vein + side veins
+    ctx.strokeStyle = darker;
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+    for (let i = 1; i <= 3; i++) {
+      const f = i / 4;
+      const vx = bx + dx * f, vy = by + dy * f;
+      ctx.beginPath();
+      ctx.moveTo(vx, vy);
+      ctx.lineTo(vx + pxw * 3 + dx / len * 2, vy + pyw * 3 + dy / len * 2);
+      ctx.moveTo(vx, vy);
+      ctx.lineTo(vx - pxw * 3 + dx / len * 2, vy - pyw * 3 + dy / len * 2);
+      ctx.stroke();
+    }
+  }
+
+  // --- Spiky lower arms (two spiked crescents) ---
+  ctx.fillStyle = green;
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 1.2;
+  for (const s of [-1, 1]) {
+    const ax = cx + s * 9;
+    ctx.beginPath();
+    ctx.moveTo(ax - s * 5, y + 22);
+    ctx.quadraticCurveTo(ax + s * 9, y + 25, ax + s * 5, y + 31);
+    ctx.quadraticCurveTo(ax + s * 2, y + 26, ax - s * 5, y + 22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    for (let i = 0; i < 3; i++) {
+      const f = i / 3;
+      const sxp = (ax - s * 5) + (s * 10) * f;
+      const syp = (y + 22) + 5 * f;
+      ctx.fillStyle = darker;
+      ctx.beginPath();
+      ctx.moveTo(sxp, syp);
+      ctx.lineTo(sxp + s * 2, syp + 5);
+      ctx.lineTo(sxp + s * 4, syp);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = green;
+    }
+  }
+
+  // --- Round green head ---
+  ctx.fillStyle = green;
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(cx, y + 13, 11, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // --- Pale eyes ---
+  ctx.fillStyle = "#CFCFC8";
+  ctx.beginPath();
+  ctx.arc(cx - 5, y + 11, 2.8, 0, Math.PI * 2);
+  ctx.arc(cx + 5, y + 11, 2.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#1A1A1A";
+  ctx.beginPath();
+  ctx.arc(cx - 5, y + 11, 1.1, 0, Math.PI * 2);
+  ctx.arc(cx + 5, y + 11, 1.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Fang mouth (downward triangles) ---
+  ctx.fillStyle = "#EAFBE4";
+  for (let i = 0; i < 3; i++) {
+    const fx = cx - 5 + i * 5;
+    ctx.beginPath();
+    ctx.moveTo(fx, y + 17);
+    ctx.lineTo(fx + 2, y + 22);
+    ctx.lineTo(fx + 4, y + 17);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // --- HP pips above the head (only once hurt) ---
+  if (p.hp < p.maxHp) {
+    const startX = cx - (p.maxHp * 7 - 2) / 2;
+    for (let i = 0; i < p.maxHp; i++) {
+      ctx.fillStyle = i < p.hp ? "#3DDC5A" : "#444";
+      ctx.fillRect(startX + i * 7, y - 22, 5, 3);
     }
   }
 }
@@ -2136,7 +2260,8 @@ function update() {
     }
 
     // -- EGG hatch + PET behaviour --
-    if (egg && egg.state !== "hatched") {
+    for (const egg of eggs) {
+      if (egg.state === "hatched") continue;
       if (egg.state === "idle") {
         // Touch the egg to start the 3-second hatch timer
         if (
@@ -2444,7 +2569,7 @@ function update() {
   }
 
   // Egg (until it hatches)
-  if (egg && egg.state !== "hatched") drawEgg(egg);
+  for (const egg of eggs) if (egg.state !== "hatched") drawEgg(egg);
 
   // Cannons
   for (const c of cannons) drawCannon(c);
