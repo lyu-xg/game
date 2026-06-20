@@ -420,6 +420,17 @@ function drawPlayer() {
   }
 }
 
+// Enemy bounding box [x, y, w, h] by kind — shared by melee targeting etc.
+function enemyBox(en) {
+  const k = en[6];
+  const isBoss = typeof k === "string" && k.startsWith("boss");
+  const w = k === "boss-alien" ? 70 : k === "boss-skeleton" ? 56 : isBoss ? 64
+    : k === "crocodile" ? 80 : k === "centipede" ? 74 : k === "snake" ? 56 : 32;
+  const h = k === "boss-alien" ? 70 : k === "boss-skeleton" ? 64 : isBoss ? 50
+    : k === "crocodile" ? 40 : k === "centipede" ? 22 : k === "snake" ? 36 : 28;
+  return [en[0], en[1], w, h];
+}
+
 // === DRAW AN ENEMY ===
 function drawEnemy(e) {
   const [x, y, lb, rb, color, hp, kind, initHp, dir, alive] = e;
@@ -1894,32 +1905,32 @@ function drawPetLeaf(p) {
     }
   }
 
-  // --- Spiky lower arms (two spiked crescents) ---
-  ctx.fillStyle = green;
-  ctx.strokeStyle = dark;
-  ctx.lineWidth = 1.2;
+  // --- Two DETACHED leaf-blades below the body (its melee weapons) ---
+  // They sit in a gap under the head and snap inward when attacking.
+  const atk = p.attackT && (Date.now() - p.attackT < 160);
   for (const s of [-1, 1]) {
-    const ax = cx + s * 9;
+    const snap = atk ? -s * 4 : 0;                  // swing inward on attack
+    const flutter = Math.sin(t / 160 + s) * 1.5;
+    const bx = cx + s * 7 + snap, by = y + 27 + flutter;   // base (gap below head)
+    const tx = cx + s * 14 + snap, ty = y + 37 + flutter;  // tip points down-out
+    const dx = tx - bx, dy = ty - by, len = Math.hypot(dx, dy) || 1;
+    const pxw = -dy / len, pyw = dx / len, hw = 3.5;
+    ctx.fillStyle = green;
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.moveTo(ax - s * 5, y + 22);
-    ctx.quadraticCurveTo(ax + s * 9, y + 25, ax + s * 5, y + 31);
-    ctx.quadraticCurveTo(ax + s * 2, y + 26, ax - s * 5, y + 22);
+    ctx.moveTo(bx, by);
+    ctx.quadraticCurveTo(bx + dx * 0.5 + pxw * hw, by + dy * 0.5 + pyw * hw, tx, ty);
+    ctx.quadraticCurveTo(bx + dx * 0.5 - pxw * hw, by + dy * 0.5 - pyw * hw, bx, by);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    for (let i = 0; i < 3; i++) {
-      const f = i / 3;
-      const sxp = (ax - s * 5) + (s * 10) * f;
-      const syp = (y + 22) + 5 * f;
-      ctx.fillStyle = darker;
-      ctx.beginPath();
-      ctx.moveTo(sxp, syp);
-      ctx.lineTo(sxp + s * 2, syp + 5);
-      ctx.lineTo(sxp + s * 4, syp);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = green;
-    }
+    // center vein
+    ctx.strokeStyle = darker;
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
   }
 
   // --- Round green head ---
@@ -2300,14 +2311,53 @@ function update() {
         }
         continue;
       }
-      // Hover in this pet's slot, with a gentle (phase-offset) bob
-      const [ox, oy] = petSlots[pi] || petSlots[0];
-      const targetX = player.x + ox;
-      const targetY = player.y + oy + Math.sin(Date.now() / 300 + pi * 2) * 4;
-      pet.x += (targetX - pet.x) * 0.08;
-      pet.y += (targetY - pet.y) * 0.08;
 
-      // Fire a beam at the nearest living boss
+      const [ox, oy] = petSlots[pi] || petSlots[0];
+      const hoverX = player.x + ox;
+      const hoverY = player.y + oy + Math.sin(Date.now() / 300 + pi * 2) * 4;
+
+      if (pet.kind === "leaf") {
+        // MELEE pet: charge the nearest damageable enemy and slash it with its
+        // two lower leaves. Falls back to hovering near the player if none.
+        let target = null, best = Infinity;
+        for (const en of enemies) {
+          if (!en[9]) continue;
+          const k = en[6];
+          const dmgable = (typeof k === "string" && k.startsWith("boss")) || k === "centipede";
+          if (!dmgable) continue;
+          const [bx, by, bw, bh] = enemyBox(en);
+          const d = Math.hypot(bx + bw / 2 - (pet.x + 14), by + bh / 2 - (pet.y + 14));
+          if (d < best) { best = d; target = en; }
+        }
+        pet.fireCd -= 1;
+        if (target) {
+          const [bx, by, bw, bh] = enemyBox(target);
+          // Move to a spot just beside the enemy (a touch faster than hovering)
+          pet.x += ((bx + bw / 2 - 14) - pet.x) * 0.12;
+          pet.y += ((by + bh / 2 - 14) - pet.y) * 0.12;
+          const touching =
+            pet.x + 28 > bx && pet.x < bx + bw && pet.y + 28 > by && pet.y < by + bh;
+          if (touching) {
+            pet.attackT = Date.now();           // drives the leaf-snap animation
+            if (pet.fireCd <= 0) {
+              target[5] -= 1;
+              if (target[5] <= 0) {
+                target[9] = false;
+                player.score += (typeof target[6] === "string" && target[6].startsWith("boss")) ? 10 : 2;
+              }
+              pet.fireCd = 35;
+            }
+          }
+        } else {
+          pet.x += (hoverX - pet.x) * 0.08;
+          pet.y += (hoverY - pet.y) * 0.08;
+        }
+        continue;
+      }
+
+      // RANGED pet: hover in its slot and fire a beam at the nearest living boss
+      pet.x += (hoverX - pet.x) * 0.08;
+      pet.y += (hoverY - pet.y) * 0.08;
       pet.fireCd -= 1;
       if (pet.fireCd <= 0) {
         const target = enemies.find(
