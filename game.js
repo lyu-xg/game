@@ -1687,14 +1687,20 @@ function update() {
         });
       }
 
-      // Alien boss fires a pink energy ball horizontally in its facing dir
-      if (isAlien && frameCount % 90 === 30) {
-        const facing = e[8] > 0 ? 1 : -1;
+      // Alien boss keeps firing pink energy balls AIMED at the player, so
+      // there's real pressure to keep moving (and the pet can intercept).
+      if (isAlien && frameCount % 60 === 0) {
+        const bx = e[0] + ew / 2;
+        const by = e[1] + 42;
+        const dx = (player.x + player.width / 2) - bx;
+        const dy = (player.y + player.height / 2) - by;
+        const d = Math.hypot(dx, dy) || 1;
+        const sp = 3.6;
         acidBalls.push({
-          x: facing > 0 ? e[0] + ew + 20 : e[0] - 20,
-          y: e[1] + 42,
-          vx: 3.5 * facing,
-          vy: 0,
+          x: bx,
+          y: by,
+          vx: dx / d * sp,
+          vy: dy / d * sp,
           pink: true,
         });
       }
