@@ -220,7 +220,7 @@ const levels = [
     enemies: [
       // BIG BOSS — purple alien with yellow arms, holds a pink ball + grey
       // cannon. Patrols the top platform, shoots pink energy balls.
-      [80, 42, 20, 320, "#D32EBB", 3, "boss-alien"],
+      [80, 42, 20, 320, "#D32EBB", 7, "boss-alien"],
       // CROCODILE — patrols in the water. Body bites, back spikes also kill;
       // cannot be stomped. Unkillable hazard, like the snake.
       [400, 400, 180, 760, "#2A5840", 99, "crocodile"],
@@ -258,7 +258,7 @@ const levels = [
     coins: [],
     enemies: [
       // SKELETON-BIRD boss — patrols the top platform, throws spinning bones.
-      [380, 136, 330, 510, "#B8B8C0", 3, "boss-skeleton"],
+      [380, 136, 330, 510, "#B8B8C0", 7, "boss-skeleton"],
       // Grey CROCODILE patrols the left ground (unkillable hazard, like lvl 4).
       [80, 420, 40, 300, "#5A5A66", 99, "crocodile"],
       // CENTIPEDE crawls the right ground — stompable (2 hits).
@@ -291,12 +291,15 @@ const collectedCoins = new Set();
 const bullets = [];
 const acidBalls = [];
 const fireballs = [];
-// EGG + PET (level 4): egg hatches into a helper pet that shoots the boss.
+// EGG + PETS: touching an egg (after 3s) hatches a helper pet that shoots the
+// boss. Pets you've hatched FOLLOW YOU into later levels — but you can only ever
+// have MAX_PETS at once.
 // egg: null when the level has no egg, else { x, y, state, touchedAt }.
 //   state: "idle" → "hatching" (3s timer) → "hatched".
-// pet: null until hatched, else { x, y, hp, maxHp, alive, deadAt, fireCd }.
+// pets: array of { x, y, hp, maxHp, alive, deadAt, fireCd, kind, ... }.
+const MAX_PETS = 3;
 let egg = null;
-let pet = null;
+let pets = [];
 const petBeams = [];
 let frameCount = 0;
 
@@ -351,10 +354,17 @@ function loadLevel(n) {
   // Fresh mutable copy of coin positions
   coinState = coins.map(c => [c[0], c[1]]);
 
-  // Egg + pet reset (only level 4 defines an egg)
+  // Egg resets each level; PETS carry over (they follow you to the next level).
   egg = lvl.egg ? { ...lvl.egg, state: "idle", touchedAt: 0 } : null;
-  pet = null;
   petBeams.length = 0;
+  // Bring carried-over pets back to life and snap them next to the new start.
+  for (const p of pets) {
+    p.alive = true;
+    p.hp = p.maxHp;
+    p.x = lvl.playerStart.x - 30;
+    p.y = lvl.playerStart.y - 22;
+    p.fireCd = 30;
+  }
 
   collectedCoins.clear();
   bullets.length = 0;
@@ -2100,17 +2110,21 @@ function update() {
         acidBalls.splice(i, 1);
         continue;
       }
-      // Hit the pet first (it shields the player by taking the bolt)
-      if (
-        pet && pet.alive &&
-        a.x + 7 > pet.x && a.x - 7 < pet.x + 28 &&
-        a.y + 7 > pet.y && a.y - 7 < pet.y + 28
-      ) {
-        acidBalls.splice(i, 1);
-        pet.hp -= 1;
-        if (pet.hp <= 0) { pet.alive = false; pet.deadAt = Date.now(); }
-        continue;
+      // Hit a pet first (they shield the player by taking the bolt)
+      let hitPet = false;
+      for (const pet of pets) {
+        if (
+          pet.alive &&
+          a.x + 7 > pet.x && a.x - 7 < pet.x + 28 &&
+          a.y + 7 > pet.y && a.y - 7 < pet.y + 28
+        ) {
+          pet.hp -= 1;
+          if (pet.hp <= 0) { pet.alive = false; pet.deadAt = Date.now(); }
+          hitPet = true;
+          break;
+        }
       }
+      if (hitPet) { acidBalls.splice(i, 1); continue; }
       if (
         a.x + 7 > player.x && a.x - 7 < player.x + player.width &&
         a.y + 7 > player.y && a.y - 7 < player.y + player.height
@@ -2134,12 +2148,22 @@ function update() {
         }
       } else if (egg.state === "hatching" && Date.now() - egg.touchedAt > 3000) {
         egg.state = "hatched";
-        pet = { x: egg.x, y: egg.y - 6, hp: 3, maxHp: 3, alive: true, deadAt: 0, fireCd: 30,
-                kind: egg.petKind, body: egg.petBody, edge: egg.petEdge, beamColor: egg.petBeam };
+        // Hatch a new pet — but only up to MAX_PETS at once.
+        if (pets.length < MAX_PETS) {
+          pets.push({ x: egg.x, y: egg.y - 6, hp: 3, maxHp: 3, alive: true, deadAt: 0, fireCd: 30,
+                      kind: egg.petKind, body: egg.petBody, edge: egg.petEdge, beamColor: egg.petBeam });
+        }
       }
     }
 
-    if (pet) {
+    // Each pet hovers in its own slot around the player so they don't stack.
+    const petSlots = [
+      [-30, -22],                              // left, above
+      [player.width + 6, -22],                 // right, above
+      [player.width / 2 - 14, -42],            // center, higher
+    ];
+    for (let pi = 0; pi < pets.length; pi++) {
+      const pet = pets[pi];
       if (!pet.alive) {
         // Respawn next to the player 3 seconds after dying
         if (Date.now() - pet.deadAt > 3000) {
@@ -2149,28 +2173,29 @@ function update() {
           pet.alive = true;
           pet.fireCd = 30;
         }
-      } else {
-        // Hover just up-and-left of the player, with a gentle bob
-        const targetX = player.x - 30;
-        const targetY = player.y - 22 + Math.sin(Date.now() / 300) * 4;
-        pet.x += (targetX - pet.x) * 0.08;
-        pet.y += (targetY - pet.y) * 0.08;
+        continue;
+      }
+      // Hover in this pet's slot, with a gentle (phase-offset) bob
+      const [ox, oy] = petSlots[pi] || petSlots[0];
+      const targetX = player.x + ox;
+      const targetY = player.y + oy + Math.sin(Date.now() / 300 + pi * 2) * 4;
+      pet.x += (targetX - pet.x) * 0.08;
+      pet.y += (targetY - pet.y) * 0.08;
 
-        // Fire a beam at the nearest living boss
-        pet.fireCd -= 1;
-        if (pet.fireCd <= 0) {
-          const target = enemies.find(
-            en => en[9] && typeof en[6] === "string" && en[6].startsWith("boss")
-          );
-          if (target) {
-            const tw = target[6] === "boss-alien" ? 70 : 64;
-            const px = pet.x + 26, py = pet.y + 14;
-            const dx = (target[0] + tw / 2) - px;
-            const dy = (target[1] + 35) - py;
-            const d = Math.hypot(dx, dy) || 1;
-            petBeams.push({ x: px, y: py, vx: dx / d * 6, vy: dy / d * 6, color: pet.beamColor });
-            pet.fireCd = 55;
-          }
+      // Fire a beam at the nearest living boss
+      pet.fireCd -= 1;
+      if (pet.fireCd <= 0) {
+        const target = enemies.find(
+          en => en[9] && typeof en[6] === "string" && en[6].startsWith("boss")
+        );
+        if (target) {
+          const tw = target[6] === "boss-alien" ? 70 : 64;
+          const px = pet.x + 26, py = pet.y + 14;
+          const dx = (target[0] + tw / 2) - px;
+          const dy = (target[1] + 35) - py;
+          const d = Math.hypot(dx, dy) || 1;
+          petBeams.push({ x: px, y: py, vx: dx / d * 6, vy: dy / d * 6, color: pet.beamColor });
+          pet.fireCd = 55;
         }
       }
     }
@@ -2427,15 +2452,28 @@ function update() {
   // Enemies
   for (const e of enemies) drawEnemy(e);
 
+  // Boss health bars (bosses now take several hits — show progress)
+  for (const e of enemies) {
+    const k = e[6];
+    if (!(e[9] && typeof k === "string" && k.startsWith("boss"))) continue;
+    const bw = k === "boss-alien" ? 70 : k === "boss-skeleton" ? 56 : 64;
+    const frac = Math.max(0, e[5] / e[7]);
+    const barW = 60, bx = e[0] + bw / 2 - barW / 2, by = e[1] - 12;
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(bx - 1, by - 1, barW + 2, 6);
+    ctx.fillStyle = frac > 0.5 ? "#3DDC5A" : frac > 0.25 ? "#FFD23D" : "#FF3D3D";
+    ctx.fillRect(bx, by, barW * frac, 4);
+  }
+
   // Bullets
   for (const b of bullets) drawBullet(b);
 
   // Acid balls (toxic waste spat by the boss)
   for (const a of acidBalls) drawAcidBall(a);
 
-  // Pet beams + pet (helper hatched from the egg)
+  // Pet beams + pets (helpers hatched from eggs, carried across levels)
   for (const b of petBeams) drawPetBeam(b);
-  if (pet) drawPet(pet);
+  for (const p of pets) drawPet(p);
 
   // Player
   drawPlayer();
@@ -2472,6 +2510,17 @@ function update() {
   const lvlWidth = ctx.measureText(lvlText).width;
   ctx.strokeText(lvlText, canvas.width - lvlWidth - 16, 28);
   ctx.fillText(lvlText, canvas.width - lvlWidth - 16, 28);
+
+  // Pet counter (right side, under the level name) — shows the 3-pet cap
+  if (pets.length > 0) {
+    ctx.font = "bold 16px monospace";
+    const petText = "Pets: " + pets.length + "/" + MAX_PETS;
+    const pw = ctx.measureText(petText).width;
+    ctx.fillStyle = "#9BE0FF";
+    ctx.strokeText(petText, canvas.width - pw - 16, 50);
+    ctx.fillText(petText, canvas.width - pw - 16, 50);
+    ctx.fillStyle = "#FFFFFF";
+  }
 
   // Hint: changes based on win mode
   if (!levelClearAt && !gameWon) {
