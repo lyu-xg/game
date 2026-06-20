@@ -235,6 +235,9 @@ const levels = [
     fireSpawners: [],
     icicles: [],
     water: { y: 400, height: 100, color: "rgba(40, 90, 200, 0.55)" },
+    // EGG — touch it and wait 3 seconds; it hatches into a pet that helps you
+    // fight the boss. If the pet dies it respawns next to you. (Kid: move x/y!)
+    egg: { x: 405, y: 256 },
     flag: { x: 758, y: 122, width: 6, height: 48 },
     winCondition: "kill-boss",
   },
@@ -250,6 +253,13 @@ const collectedCoins = new Set();
 const bullets = [];
 const acidBalls = [];
 const fireballs = [];
+// EGG + PET (level 4): egg hatches into a helper pet that shoots the boss.
+// egg: null when the level has no egg, else { x, y, state, touchedAt }.
+//   state: "idle" → "hatching" (3s timer) → "hatched".
+// pet: null until hatched, else { x, y, hp, maxHp, alive, deadAt, fireCd }.
+let egg = null;
+let pet = null;
+const petBeams = [];
 let frameCount = 0;
 
 // Tuning constants (shared across levels)
@@ -302,6 +312,11 @@ function loadLevel(n) {
 
   // Fresh mutable copy of coin positions
   coinState = coins.map(c => [c[0], c[1]]);
+
+  // Egg + pet reset (only level 4 defines an egg)
+  egg = lvl.egg ? { x: lvl.egg.x, y: lvl.egg.y, state: "idle", touchedAt: 0 } : null;
+  pet = null;
+  petBeams.length = 0;
 
   collectedCoins.clear();
   bullets.length = 0;
@@ -1339,6 +1354,167 @@ function drawCoin(x, y, index) {
   ctx.fillText("$", x + 6, y + 14 + bob);
 }
 
+// === DRAW THE EGG ===
+// Yellow speckled egg. Wiggles and cracks more the closer it is to hatching.
+function drawEgg(eg) {
+  const t = Date.now();
+  let shake = 0, prog = 0;
+  if (eg.state === "hatching") {
+    prog = Math.min(1, (t - eg.touchedAt) / 3000);   // 0 → 1
+    shake = Math.sin(t / 40) * (1 + prog * 4);
+  }
+  const cx = eg.x + 13 + shake;
+  const cy = eg.y + 17;
+
+  // Shell
+  ctx.fillStyle = "#F4E04A";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, 13, 17, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#C9A227";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Dark speckles
+  ctx.fillStyle = "#7A6A22";
+  for (const [sx, sy, sr] of [[-5, -7, 2.5], [4, -3, 2], [-2, 4, 3], [6, 6, 2], [-7, 1, 1.8]]) {
+    ctx.beginPath();
+    ctx.arc(cx + sx, cy + sy, sr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Crack across the middle, growing as it hatches
+  if (prog > 0) {
+    ctx.strokeStyle = "#5A4A14";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const span = 11 * prog;
+    ctx.moveTo(cx - span, cy - 2);
+    ctx.lineTo(cx - span / 2, cy + 3);
+    ctx.lineTo(cx, cy - 2);
+    ctx.lineTo(cx + span / 2, cy + 3);
+    ctx.lineTo(cx + span, cy - 2);
+    ctx.stroke();
+  }
+}
+
+// === DRAW THE PET === (the cracked-egg robot the kid drew)
+function drawPet(p) {
+  if (!p.alive) return;        // hidden while waiting to respawn
+  const t = Date.now();
+  const x = p.x, y = p.y + Math.sin(t / 300) * 1.5;
+  const cx = x + 14;
+
+  // --- Spring antennae (blue + red balls) ---
+  ctx.strokeStyle = "#999";
+  ctx.lineWidth = 1.5;
+  for (const [ax, ball] of [[-5, "#3A6FD8"], [5, "#E03A2F"]]) {
+    const tipx = cx + ax + Math.sin(t / 180 + ax) * 1.5;
+    const tipy = y - 9;
+    ctx.beginPath();
+    ctx.moveTo(cx + ax, y + 2);
+    ctx.lineTo(tipx - 1, y - 2);
+    ctx.lineTo(tipx + 1, y - 5);
+    ctx.lineTo(tipx, tipy);
+    ctx.stroke();
+    ctx.fillStyle = ball;
+    ctx.beginPath();
+    ctx.arc(tipx, tipy - 1, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // --- Three little legs ---
+  ctx.strokeStyle = "#888";
+  ctx.lineWidth = 2;
+  for (const lx of [-7, 0, 7]) {
+    ctx.beginPath();
+    ctx.moveTo(cx + lx, y + 22);
+    ctx.lineTo(cx + lx, y + 27);
+    ctx.stroke();
+    ctx.fillStyle = lx < 0 ? "#3A6FD8" : "#E03A2F";
+    ctx.fillRect(cx + lx - 2, y + 26, 4, 2);
+  }
+
+  // --- Body: two yellow egg-shell halves with jagged teeth between ---
+  ctx.fillStyle = "#F4E04A";
+  ctx.strokeStyle = "#B58A3C";
+  ctx.lineWidth = 2;
+  // top half
+  ctx.beginPath();
+  ctx.moveTo(x + 2, y + 11);
+  ctx.quadraticCurveTo(cx, y - 2, x + 26, y + 11);
+  ctx.lineTo(x + 2, y + 11);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // bottom half
+  ctx.beginPath();
+  ctx.moveTo(x + 1, y + 13);
+  ctx.lineTo(x + 27, y + 13);
+  ctx.quadraticCurveTo(x + 27, y + 24, cx, y + 23);
+  ctx.quadraticCurveTo(x + 1, y + 24, x + 1, y + 13);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // jagged teeth on the gap
+  ctx.fillStyle = "#F4E04A";
+  ctx.strokeStyle = "#B58A3C";
+  ctx.beginPath();
+  for (let i = 0; i <= 6; i++) {
+    const tx = x + 3 + i * 3.6;
+    ctx.lineTo(tx, y + 11 + (i % 2 === 0 ? 0 : 3));
+  }
+  ctx.stroke();
+
+  // --- Eyes ---
+  ctx.fillStyle = "#FFF";
+  ctx.beginPath();
+  ctx.arc(cx - 5, y + 6, 2.6, 0, Math.PI * 2);
+  ctx.arc(cx + 5, y + 6, 2.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.arc(cx - 5, y + 6, 1.1, 0, Math.PI * 2);
+  ctx.arc(cx + 5, y + 6, 1.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Blaster arm (grey, points right) ---
+  ctx.fillStyle = "#777";
+  ctx.fillRect(x + 26, y + 14, 9, 5);
+  ctx.fillStyle = "#BBB";
+  ctx.fillRect(x + 26, y + 14, 9, 1.5);
+  ctx.fillStyle = "#444";
+  ctx.fillRect(x + 34, y + 15, 2, 3);
+
+  // --- HP pips above the head (only shown once the pet has taken a hit) ---
+  if (p.hp < p.maxHp) {
+    const startX = cx - (p.maxHp * 7 - 2) / 2;
+    for (let i = 0; i < p.maxHp; i++) {
+      ctx.fillStyle = i < p.hp ? "#3DDC5A" : "#444";
+      ctx.fillRect(startX + i * 7, y - 17, 5, 3);
+    }
+  }
+}
+
+// === DRAW A PET BEAM === (yellow lightning bolt)
+function drawPetBeam(b) {
+  const ang = Math.atan2(b.vy, b.vx);
+  const nx = Math.cos(ang), ny = Math.sin(ang);
+  const px = -ny, py = nx;        // perpendicular, for the zigzag
+  ctx.strokeStyle = "#FFE800";
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  for (let i = 0; i <= 4; i++) {
+    const along = (i - 2) * 5;
+    const side = (i % 2 === 0 ? -1 : 1) * 3;
+    const sx = b.x + nx * along + px * side;
+    const sy = b.y + ny * along + py * side;
+    if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+  }
+  ctx.stroke();
+}
+
 // === RESPAWN PLAYER (within current level) ===
 function respawn() {
   player.x = playerStart.x;
@@ -1564,6 +1740,17 @@ function update() {
         acidBalls.splice(i, 1);
         continue;
       }
+      // Hit the pet first (it shields the player by taking the bolt)
+      if (
+        pet && pet.alive &&
+        a.x + 7 > pet.x && a.x - 7 < pet.x + 28 &&
+        a.y + 7 > pet.y && a.y - 7 < pet.y + 28
+      ) {
+        acidBalls.splice(i, 1);
+        pet.hp -= 1;
+        if (pet.hp <= 0) { pet.alive = false; pet.deadAt = Date.now(); }
+        continue;
+      }
       if (
         a.x + 7 > player.x && a.x - 7 < player.x + player.width &&
         a.y + 7 > player.y && a.y - 7 < player.y + player.height
@@ -1572,6 +1759,85 @@ function update() {
         respawn();
         break;
       }
+    }
+
+    // -- EGG hatch + PET behaviour --
+    if (egg && egg.state !== "hatched") {
+      if (egg.state === "idle") {
+        // Touch the egg to start the 3-second hatch timer
+        if (
+          player.x + player.width > egg.x && player.x < egg.x + 26 &&
+          player.y + player.height > egg.y && player.y < egg.y + 34
+        ) {
+          egg.state = "hatching";
+          egg.touchedAt = Date.now();
+        }
+      } else if (egg.state === "hatching" && Date.now() - egg.touchedAt > 3000) {
+        egg.state = "hatched";
+        pet = { x: egg.x, y: egg.y - 6, hp: 3, maxHp: 3, alive: true, deadAt: 0, fireCd: 30 };
+      }
+    }
+
+    if (pet) {
+      if (!pet.alive) {
+        // Respawn next to the player 3 seconds after dying
+        if (Date.now() - pet.deadAt > 3000) {
+          pet.x = player.x - 36;
+          pet.y = player.y - 12;
+          pet.hp = pet.maxHp;
+          pet.alive = true;
+          pet.fireCd = 30;
+        }
+      } else {
+        // Hover just up-and-left of the player, with a gentle bob
+        const targetX = player.x - 30;
+        const targetY = player.y - 22 + Math.sin(Date.now() / 300) * 4;
+        pet.x += (targetX - pet.x) * 0.08;
+        pet.y += (targetY - pet.y) * 0.08;
+
+        // Fire a beam at the nearest living boss
+        pet.fireCd -= 1;
+        if (pet.fireCd <= 0) {
+          const target = enemies.find(
+            en => en[9] && typeof en[6] === "string" && en[6].startsWith("boss")
+          );
+          if (target) {
+            const tw = target[6] === "boss-alien" ? 70 : 64;
+            const px = pet.x + 26, py = pet.y + 14;
+            const dx = (target[0] + tw / 2) - px;
+            const dy = (target[1] + 35) - py;
+            const d = Math.hypot(dx, dy) || 1;
+            petBeams.push({ x: px, y: py, vx: dx / d * 6, vy: dy / d * 6 });
+            pet.fireCd = 55;
+          }
+        }
+      }
+    }
+
+    // -- Pet beams fly and damage the boss --
+    for (let i = petBeams.length - 1; i >= 0; i--) {
+      const b = petBeams[i];
+      b.x += b.vx;
+      b.y += b.vy;
+      if (b.x < -20 || b.x > canvas.width + 20 || b.y < -20 || b.y > canvas.height + 20) {
+        petBeams.splice(i, 1);
+        continue;
+      }
+      let hit = false;
+      for (const en of enemies) {
+        if (!en[9]) continue;
+        const k = en[6];
+        if (!(typeof k === "string" && k.startsWith("boss"))) continue;
+        const bw = k === "boss-alien" ? 70 : 64;
+        const bh = k === "boss-alien" ? 70 : 50;
+        if (b.x > en[0] && b.x < en[0] + bw && b.y > en[1] && b.y < en[1] + bh) {
+          en[5] -= 1;
+          if (en[5] <= 0) { en[9] = false; player.score += 10; }
+          hit = true;
+          break;
+        }
+      }
+      if (hit) petBeams.splice(i, 1);
     }
 
     // -- Hazards (electric ceiling etc.): touch = instant respawn --
@@ -1791,6 +2057,9 @@ function update() {
     drawCoin(coinState[i][0], coinState[i][1], i);
   }
 
+  // Egg (until it hatches)
+  if (egg && egg.state !== "hatched") drawEgg(egg);
+
   // Cannons
   for (const c of cannons) drawCannon(c);
 
@@ -1802,6 +2071,10 @@ function update() {
 
   // Acid balls (toxic waste spat by the boss)
   for (const a of acidBalls) drawAcidBall(a);
+
+  // Pet beams + pet (helper hatched from the egg)
+  for (const b of petBeams) drawPetBeam(b);
+  if (pet) drawPet(pet);
 
   // Player
   drawPlayer();
