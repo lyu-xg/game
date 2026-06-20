@@ -241,6 +241,44 @@ const levels = [
     flag: { x: 758, y: 122, width: 6, height: 48 },
     winCondition: "kill-boss",
   },
+  {
+    name: "Level 5",
+    skyColor: "#000000",
+    showClouds: false,
+    platformGrass: false,
+    playerStart: { x: 45, y: 286 },
+    platforms: [
+      [0, 460, 800, 40, "#B5824A"],    // brown ground
+      [30, 330, 140, 14, "#6A6A78"],   // start platform (left)
+      [200, 300, 120, 14, "#6A6A78"],  // step up toward the boss
+      [330, 200, 180, 14, "#6A6A78"],  // BOSS platform (center-top)
+      [560, 250, 150, 14, "#6A6A78"],  // RED EGG platform (right)
+      [600, 360, 150, 14, "#6A6A78"],  // lower-right platform
+    ],
+    coins: [],
+    enemies: [
+      // SKELETON-BIRD boss — patrols the top platform, throws spinning bones.
+      [380, 136, 330, 510, "#B8B8C0", 3, "boss-skeleton"],
+      // Grey CROCODILE patrols the left ground (unkillable hazard, like lvl 4).
+      [80, 420, 40, 300, "#5A5A66", 99, "crocodile"],
+      // CENTIPEDE crawls the right ground — stompable (2 hits).
+      [420, 432, 360, 770, "#6E6E7A", 2, "centipede"],
+    ],
+    cannons: [],
+    hazards: [],
+    ramps: [],
+    springs: [],
+    fireSpawners: [],
+    icicles: [],
+    // RED egg → hatches a red helper pet (same as level 4, kid's red drawing).
+    egg: {
+      x: 612, y: 216,
+      color: "#D8362A", edgeColor: "#8A2418", spotColor: "#9A9AA2",
+      petBody: "#E0483A", petEdge: "#8A2A20",
+    },
+    flag: { x: 740, y: 402, width: 6, height: 48 },
+    winCondition: "kill-boss",
+  },
 ];
 
 // === ACTIVE LEVEL STATE ===
@@ -314,7 +352,7 @@ function loadLevel(n) {
   coinState = coins.map(c => [c[0], c[1]]);
 
   // Egg + pet reset (only level 4 defines an egg)
-  egg = lvl.egg ? { x: lvl.egg.x, y: lvl.egg.y, state: "idle", touchedAt: 0 } : null;
+  egg = lvl.egg ? { ...lvl.egg, state: "idle", touchedAt: 0 } : null;
   pet = null;
   petBeams.length = 0;
 
@@ -371,8 +409,10 @@ function drawEnemy(e) {
   if (kind === "boss-toxic") { drawBoss(e); return; }
   if (kind === "boss-spiky") { drawBossSpiky(e); return; }
   if (kind === "boss-alien") { drawBossAlien(e); return; }
+  if (kind === "boss-skeleton") { drawSkeletonBird(e); return; }
   if (kind === "snake") { drawSnake(e); return; }
   if (kind === "crocodile") { drawCrocodile(e); return; }
+  if (kind === "centipede") { drawCentipede(e); return; }
 
   const w = 32, h = 28;
 
@@ -591,6 +631,29 @@ function drawAcidBall(a) {
     ctx.beginPath();
     ctx.arc(0, 0, 5, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  if (a.bone) {
+    // Spinning bone — the skeleton boss's throw (level 5)
+    const spin = (Date.now() / 90) % (Math.PI * 2);
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.rotate(spin);
+    ctx.strokeStyle = "#EDE8DC";
+    ctx.fillStyle = "#EDE8DC";
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-6, 0);
+    ctx.lineTo(6, 0);
+    ctx.stroke();
+    for (const [ex, ey] of [[-6, -3], [-6, 3], [6, -3], [6, 3]]) {
+      ctx.beginPath();
+      ctx.arc(ex, ey, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
     return;
   }
@@ -1200,6 +1263,179 @@ function drawCrocodile(e) {
   ctx.restore();
 }
 
+// === DRAW THE SKELETON-BIRD BOSS === (level 5, grey bone bird with red crest)
+function drawSkeletonBird(e) {
+  const x = e[0], y = e[1], hp = e[5], dir = e[8] || 1;
+  const w = 56, h = 64;
+  const t = Date.now();
+  const flap = Math.sin(t / 180) * 6;     // wing flap
+  const cx = x + w / 2;
+
+  const bone = "#B8B8C0", boneDark = "#7C7C86";
+
+  // --- Wings (two grey fan shapes, flapping) ---
+  ctx.fillStyle = bone;
+  ctx.strokeStyle = boneDark;
+  ctx.lineWidth = 1.5;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(cx + side * 6, y + 24);
+    ctx.lineTo(cx + side * 26, y + 18 - flap);
+    ctx.lineTo(cx + side * 24, y + 30 - flap * 0.5);
+    ctx.lineTo(cx + side * 22, y + 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // wing bone ribs
+    ctx.beginPath();
+    ctx.moveTo(cx + side * 6, y + 24);
+    ctx.lineTo(cx + side * 24, y + 24 - flap * 0.6);
+    ctx.stroke();
+  }
+
+  // --- Spine + ribcage ---
+  ctx.strokeStyle = bone;
+  ctx.lineWidth = 4;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx, y + 18);
+  ctx.lineTo(cx, y + 48);
+  ctx.stroke();
+  ctx.lineWidth = 2.5;
+  for (let i = 0; i < 4; i++) {
+    const ry = y + 24 + i * 6;
+    ctx.beginPath();
+    ctx.arc(cx, ry, 7 - i, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, ry, 7 - i, Math.PI * 1.15, Math.PI * 1.85);
+    ctx.stroke();
+  }
+
+  // --- Legs (thin, two-jointed) ---
+  ctx.strokeStyle = bone;
+  ctx.lineWidth = 2.5;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(cx, y + 48);
+    ctx.lineTo(cx + side * 8, y + 56);
+    ctx.lineTo(cx + side * 6, y + h);
+    ctx.stroke();
+    // foot claws
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx + side * 6, y + h);
+    ctx.lineTo(cx + side * 11, y + h + 2);
+    ctx.moveTo(cx + side * 6, y + h);
+    ctx.lineTo(cx + side * 2, y + h + 2);
+    ctx.stroke();
+    ctx.lineWidth = 2.5;
+  }
+
+  // --- Skull ---
+  ctx.fillStyle = bone;
+  ctx.strokeStyle = boneDark;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(cx, y + 12, 12, 11, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  // beak
+  ctx.fillStyle = boneDark;
+  ctx.beginPath();
+  ctx.moveTo(cx + dir * 10, y + 12);
+  ctx.lineTo(cx + dir * 20, y + 14);
+  ctx.lineTo(cx + dir * 10, y + 17);
+  ctx.closePath();
+  ctx.fill();
+  // eye sockets (dark, glowing red dot looking at player dir)
+  ctx.fillStyle = "#1A1A1A";
+  ctx.beginPath();
+  ctx.arc(cx - 4, y + 11, 3, 0, Math.PI * 2);
+  ctx.arc(cx + 4, y + 11, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#FF3030";
+  ctx.beginPath();
+  ctx.arc(cx - 4 + dir, y + 11, 1.3, 0, Math.PI * 2);
+  ctx.arc(cx + 4 + dir, y + 11, 1.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Red crest (the brain-like mark on the head) ---
+  ctx.fillStyle = "#D8362A";
+  ctx.beginPath();
+  ctx.arc(cx - 2, y + 2, 3, 0, Math.PI * 2);
+  ctx.arc(cx + 2, y + 2, 3, 0, Math.PI * 2);
+  ctx.arc(cx, y - 1, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Damage cracks on the skull
+  if (hp <= 2) {
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx + 2, y + 5);
+    ctx.lineTo(cx - 2, y + 11);
+    ctx.lineTo(cx + 3, y + 16);
+    ctx.stroke();
+  }
+}
+
+// === DRAW A CENTIPEDE === (level 5, segmented ground crawler)
+function drawCentipede(e) {
+  const x = e[0], y = e[1], dir = e[8] || 1;
+  const segs = 6, r = 9, step = 11;
+  const t = Date.now();
+
+  // Legs first (behind body)
+  ctx.strokeStyle = "#5A5A66";
+  ctx.lineWidth = 2;
+  for (let i = 0; i < segs; i++) {
+    const sx = x + 10 + i * step;
+    const wig = Math.sin(t / 120 + i) * 3;
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(sx, y + r);
+      ctx.lineTo(sx + side * 4, y + r + 8 + wig * side);
+      ctx.stroke();
+    }
+  }
+
+  // Body segments
+  for (let i = 0; i < segs; i++) {
+    const sx = x + 10 + i * step;
+    const bob = Math.sin(t / 120 + i) * 2;
+    ctx.fillStyle = i % 2 === 0 ? "#6E6E7A" : "#585866";
+    ctx.beginPath();
+    ctx.arc(sx, y + r + bob, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#3C3C46";
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  }
+
+  // Head (leading segment in patrol direction)
+  const hx = dir > 0 ? x + 10 + (segs - 1) * step : x + 10;
+  ctx.fillStyle = "#7A7A88";
+  ctx.beginPath();
+  ctx.arc(hx, y + r, r + 1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#3C3C46";
+  ctx.stroke();
+  // red eye + little mandibles
+  ctx.fillStyle = "#E0332A";
+  ctx.beginPath();
+  ctx.arc(hx + dir * 3, y + r - 2, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#2A2A30";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(hx + dir * (r - 1), y + r + 2);
+  ctx.lineTo(hx + dir * (r + 5), y + r);
+  ctx.moveTo(hx + dir * (r - 1), y + r + 5);
+  ctx.lineTo(hx + dir * (r + 5), y + r + 6);
+  ctx.stroke();
+}
+
 // === DRAW A FALLING FIREBALL ===
 function drawFireball(f) {
   // Outer flame glow
@@ -1366,17 +1602,17 @@ function drawEgg(eg) {
   const cx = eg.x + 13 + shake;
   const cy = eg.y + 17;
 
-  // Shell
-  ctx.fillStyle = "#F4E04A";
+  // Shell (color can be set per level — e.g. the red egg in level 5)
+  ctx.fillStyle = eg.color || "#F4E04A";
   ctx.beginPath();
   ctx.ellipse(cx, cy, 13, 17, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "#C9A227";
+  ctx.strokeStyle = eg.edgeColor || "#C9A227";
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Dark speckles
-  ctx.fillStyle = "#7A6A22";
+  // Speckles
+  ctx.fillStyle = eg.spotColor || "#7A6A22";
   for (const [sx, sy, sr] of [[-5, -7, 2.5], [4, -3, 2], [-2, 4, 3], [6, 6, 2], [-7, 1, 1.8]]) {
     ctx.beginPath();
     ctx.arc(cx + sx, cy + sy, sr, 0, Math.PI * 2);
@@ -1435,9 +1671,11 @@ function drawPet(p) {
     ctx.fillRect(cx + lx - 2, y + 26, 4, 2);
   }
 
-  // --- Body: two yellow egg-shell halves with jagged teeth between ---
-  ctx.fillStyle = "#F4E04A";
-  ctx.strokeStyle = "#B58A3C";
+  // --- Body: two egg-shell halves with jagged teeth between ---
+  const body = p.body || "#F4E04A";
+  const edge = p.edge || "#B58A3C";
+  ctx.fillStyle = body;
+  ctx.strokeStyle = edge;
   ctx.lineWidth = 2;
   // top half
   ctx.beginPath();
@@ -1457,8 +1695,8 @@ function drawPet(p) {
   ctx.fill();
   ctx.stroke();
   // jagged teeth on the gap
-  ctx.fillStyle = "#F4E04A";
-  ctx.strokeStyle = "#B58A3C";
+  ctx.fillStyle = body;
+  ctx.strokeStyle = edge;
   ctx.beginPath();
   for (let i = 0; i <= 6; i++) {
     const tx = x + 3 + i * 3.6;
@@ -1640,13 +1878,15 @@ function update() {
       const kind = e[6];
       const isBoss = typeof kind === "string" && kind.startsWith("boss");
       const isAlien = kind === "boss-alien";
+      const isSkeleton = kind === "boss-skeleton";
       const isSnake = kind === "snake";
       const isCroc = kind === "crocodile";
-      const ew = isAlien ? 70 : isBoss ? 64 : isCroc ? 80 : isSnake ? 56 : 32;
-      const eh = isAlien ? 70 : isBoss ? 50 : isCroc ? 40 : isSnake ? 36 : 28;
+      const isCentipede = kind === "centipede";
+      const ew = isAlien ? 70 : isSkeleton ? 56 : isBoss ? 64 : isCroc ? 80 : isCentipede ? 74 : isSnake ? 56 : 32;
+      const eh = isAlien ? 70 : isSkeleton ? 64 : isBoss ? 50 : isCroc ? 40 : isCentipede ? 22 : isSnake ? 36 : 28;
 
-      if (isAlien) {
-        // Alien boss patrols its platform like a walker, just slower.
+      if (isAlien || isSkeleton) {
+        // Flying bosses patrol their platform like a walker, just slower.
         e[0] += 1.2 * e[8];
         if (e[0] < e[2]) { e[0] = e[2]; e[8] = 1; }
         if (e[0] + ew > e[3]) { e[0] = e[3] - ew; e[8] = -1; }
@@ -1702,6 +1942,23 @@ function update() {
           vx: dx / d * sp,
           vy: dy / d * sp,
           pink: true,
+        });
+      }
+
+      // Skeleton boss throws spinning bones aimed at the player (slower cadence)
+      if (isSkeleton && frameCount % 100 === 0) {
+        const bx = e[0] + ew / 2;
+        const by = e[1] + 14;
+        const dx = (player.x + player.width / 2) - bx;
+        const dy = (player.y + player.height / 2) - by;
+        const d = Math.hypot(dx, dy) || 1;
+        const sp = 3.2;
+        acidBalls.push({
+          x: bx,
+          y: by,
+          vx: dx / d * sp,
+          vy: dy / d * sp,
+          bone: true,
         });
       }
 
@@ -1780,7 +2037,8 @@ function update() {
         }
       } else if (egg.state === "hatching" && Date.now() - egg.touchedAt > 3000) {
         egg.state = "hatched";
-        pet = { x: egg.x, y: egg.y - 6, hp: 3, maxHp: 3, alive: true, deadAt: 0, fireCd: 30 };
+        pet = { x: egg.x, y: egg.y - 6, hp: 3, maxHp: 3, alive: true, deadAt: 0, fireCd: 30,
+                body: egg.petBody, edge: egg.petEdge };
       }
     }
 
@@ -1834,8 +2092,8 @@ function update() {
         if (!en[9]) continue;
         const k = en[6];
         if (!(typeof k === "string" && k.startsWith("boss"))) continue;
-        const bw = k === "boss-alien" ? 70 : 64;
-        const bh = k === "boss-alien" ? 70 : 50;
+        const bw = k === "boss-alien" ? 70 : k === "boss-skeleton" ? 56 : 64;
+        const bh = k === "boss-alien" ? 70 : k === "boss-skeleton" ? 64 : 50;
         if (b.x > en[0] && b.x < en[0] + bw && b.y > en[1] && b.y < en[1] + bh) {
           en[5] -= 1;
           if (en[5] <= 0) { en[9] = false; player.score += 10; }
