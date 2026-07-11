@@ -78,6 +78,10 @@ const gravity = 0.6;
 //   ramp:     [x, y, width, height, slideDir]   slideDir ∈ "right" | "left"
 //   spring:   [x, y, width, jumpPower]        — sits on top of a platform
 //   water:    { y, height, color }            — region where the player swims
+//   ladder:   [x, y, width, height]           — climb with up/down
+//   tree:     [x, baseY]                      — broccoli tree decoration
+//   rainbowCoin: [x, y]                       — special coin, +5 points
+//   chest:    { x, y }                        — holds the green evolution coin
 //   flag:     { x, y, width, height }
 const levels = [
   // -------- LEVEL 1 (the kid's first notebook sketch) --------
@@ -316,28 +320,62 @@ const levels = [
     winCondition: "kill-boss",
   },
   {
-    // PLACEHOLDER level — just a treasure chest, to test the pet evolution.
-    // The chest holds a GREEN COIN; eating it evolves the leaf pet → MANTIS.
+    // -------- LEVEL 6 (the kid's paper-sketch level) --------
+    // White dotted paper, black floating platforms, LAVA floor.
+    // Melon boss (green face, red horns) floats top-left. A chicken guards
+    // its platform. Grey spotted egg bottom-left. Top-right: treasure chest
+    // (green coin → mantis evolution!) with a ladder down and a red mortar
+    // lobbing bombs. Rainbow coin + broccoli trees on the right.
     name: "Level 6",
-    skyColor: "#A8E4F0",
-    playerStart: { x: 60, y: 380 },
+    skyColor: "#F5F3EE",
+    bgDots: true,                     // grey dots like notebook paper
+    showClouds: false,
+    platformGrass: false,
+    playerStart: { x: 20, y: 306 },
     platforms: [
-      [0, 460, 800, 40, "#7BB661"],   // grass ground
+      [0, 350, 165, 16, "#1A1A1A"],    // bottom-left — START + grey egg
+      [145, 408, 195, 16, "#2A2A2A"],  // low middle floater
+      [205, 262, 190, 16, "#1A1A1A"],  // CHICKEN platform
+      [385, 318, 280, 16, "#1A1A1A"],  // long middle-right (rainbow coin + tree)
+      [610, 228, 190, 16, "#1A1A1A"],  // right tree platform
+      [400, 120, 175, 16, "#1A1A1A"],  // top-right CHEST platform
     ],
     coins: [],
-    enemies: [],
-    cannons: [],
-    hazards: [],
+    enemies: [
+      // MELON BOSS — green striped face, red horns, big toothy grin.
+      // Floats around the top-left spitting green goo at the player.
+      [40, 130, 20, 300, "#4CB944", 7, "boss-melon"],
+      // CHICKEN — yellow, red claws; patrols its platform (2 stomps).
+      [240, 228, 205, 395, "#F2C438", 2, "chicken"],
+    ],
+    cannons: [
+      // Red-striped MORTAR next to the chest — lobs bombs that rain down right.
+      [528, 76, 130, "#C43030", "mortar"],
+    ],
+    hazards: [
+      [0, 458, 800, 42, "lava"],       // the whole floor is LAVA!
+    ],
     ramps: [],
     springs: [],
     fireSpawners: [],
     icicles: [],
-    eggs: [],
-    // chests: [x, y] — each holds a green evolution coin. Touch to open,
-    // then eat the coin to evolve the leaf pet.
-    chests: [{ x: 380, y: 424 }],
-    flag: { x: 740, y: 412, width: 6, height: 48 },
-    winCondition: "flag",
+    // ladder: [x, y, width, height] — climb with up/down while touching it
+    ladders: [[404, 112, 26, 206]],
+    // tree: [x, baseY] — broccoli tree decoration standing on a platform
+    trees: [[560, 318], [700, 228]],
+    // rainbowCoin: [x, y] — special coin worth 5 points
+    rainbowCoins: [[505, 296]],
+    eggs: [
+      // GREY spotted egg → hatches a grey robot pet (if you have room, max 3)
+      {
+        x: 75, y: 316,
+        color: "#8E8E96", edgeColor: "#4A4A52", spotColor: "#2A2A30",
+        petBody: "#9A9AA2", petEdge: "#55555E", petBeam: "#9FD8FF",
+      },
+    ],
+    chests: [{ x: 465, y: 88 }],
+    flag: { x: 770, y: 180, width: 6, height: 48 },
+    winCondition: "kill-boss",
   },
 ];
 
@@ -364,6 +402,9 @@ let pets = [];
 //   state: "closed" → "open" (touch it). The green coin inside evolves the
 //   leaf pet into a MANTIS when eaten.
 let chests = [];
+// Level 6 extras: climbable ladders, broccoli-tree decorations, and
+// rainbow coins (worth 5 points each).
+let ladders = [], trees = [], rainbowCoins = [];
 const petBeams = [];
 let frameCount = 0;
 
@@ -421,6 +462,9 @@ function loadLevel(n) {
   // Egg resets each level; PETS carry over (they follow you to the next level).
   eggs = (lvl.eggs || []).map(e => ({ ...e, state: "idle", touchedAt: 0 }));
   chests = (lvl.chests || []).map(c => ({ ...c, state: "closed", coinTaken: false }));
+  ladders = lvl.ladders || [];
+  trees = lvl.trees || [];
+  rainbowCoins = (lvl.rainbowCoins || []).map(r => ({ x: r[0], y: r[1], taken: false }));
   petBeams.length = 0;
   // Bring carried-over pets back to life and snap them next to the new start.
   for (const p of pets) {
@@ -481,9 +525,9 @@ function enemyBox(en) {
   const k = en[6];
   const isBoss = typeof k === "string" && k.startsWith("boss");
   const w = k === "boss-alien" ? 70 : k === "boss-skeleton" ? 56 : isBoss ? 64
-    : k === "crocodile" ? 80 : k === "centipede" ? 74 : k === "snake" ? 56 : 32;
+    : k === "crocodile" ? 80 : k === "centipede" ? 74 : k === "snake" ? 56 : k === "chicken" ? 36 : 32;
   const h = k === "boss-alien" ? 70 : k === "boss-skeleton" ? 64 : isBoss ? 50
-    : k === "crocodile" ? 40 : k === "centipede" ? 22 : k === "snake" ? 36 : 28;
+    : k === "crocodile" ? 40 : k === "centipede" ? 22 : k === "snake" ? 36 : k === "chicken" ? 34 : 28;
   return [en[0], en[1], w, h];
 }
 
@@ -496,6 +540,8 @@ function drawEnemy(e) {
   if (kind === "boss-spiky") { drawBossSpiky(e); return; }
   if (kind === "boss-alien") { drawBossAlien(e); return; }
   if (kind === "boss-skeleton") { drawSkeletonBird(e); return; }
+  if (kind === "boss-melon") { drawBossMelon(e); return; }
+  if (kind === "chicken") { drawChicken(e); return; }
   if (kind === "snake") { drawSnake(e); return; }
   if (kind === "crocodile") { drawCrocodile(e); return; }
   if (kind === "centipede") { drawCentipede(e); return; }
@@ -1088,6 +1134,34 @@ function drawHazard(h) {
     return;
   }
 
+  if (kind === "lava") {
+    // Bubbling red lava (level 6 floor)
+    const t = Date.now();
+    ctx.fillStyle = "#E23B3B";
+    ctx.fillRect(x, y, w, height);
+    // wavy brighter surface
+    ctx.fillStyle = "#F06060";
+    ctx.beginPath();
+    ctx.moveTo(x, y + 6);
+    for (let px = 0; px <= w; px += 20) {
+      ctx.lineTo(x + px, y + 6 + Math.sin(t / 400 + px / 40) * 3);
+    }
+    ctx.lineTo(x + w, y);
+    ctx.lineTo(x, y);
+    ctx.closePath();
+    ctx.fill();
+    // rising bubbles
+    ctx.fillStyle = "#FF9A66";
+    for (let i = 0; i < 8; i++) {
+      const bx = x + ((i * 97) % w) + Math.sin(t / 300 + i) * 4;
+      const by = y + 8 + ((t / 12 + i * 53) % (height - 10));
+      ctx.beginPath();
+      ctx.arc(bx, y + height - (by - y), 2.5 + (i % 3), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return;
+  }
+
   if (kind !== "electric") return;
 
   // Dark cloud backdrop
@@ -1522,6 +1596,254 @@ function drawCentipede(e) {
   ctx.stroke();
 }
 
+// === DRAW THE MELON BOSS === (level 6 — green striped face, red-striped
+// curved horns, red eyes, huge grinning mouth full of teeth)
+function drawBossMelon(e) {
+  const [x, y, , , , hp, , initHp] = e;
+  const t = Date.now();
+  const bob = Math.sin(t / 350) * 3;
+  const w = 64, h = 50;
+  const cx = x + w / 2, cy = y + bob;
+
+  // --- Two curved RED horns with black dashes (like crab claws) ---
+  for (const s of [-1, 1]) {
+    ctx.strokeStyle = "#D8362A";
+    ctx.lineWidth = 9;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    // rises from the head top, curls outward then inward
+    ctx.moveTo(cx + s * 12, cy + 8);
+    ctx.quadraticCurveTo(cx + s * 30, cy - 14, cx + s * 22, cy - 26);
+    ctx.stroke();
+    // black dashes along the horn
+    ctx.strokeStyle = "#1A1A1A";
+    ctx.lineWidth = 3;
+    for (const f of [0.25, 0.55, 0.8]) {
+      const hx = cx + s * (12 + 16 * f) - s * 6 * f * f;
+      const hy = cy + 8 - 30 * f + 4 * f * f;
+      ctx.beginPath();
+      ctx.moveTo(hx - 3, hy);
+      ctx.lineTo(hx + 3, hy);
+      ctx.stroke();
+    }
+  }
+  ctx.lineCap = "butt";
+
+  // --- Green face (round-ish blob) with darker melon stripes ---
+  ctx.fillStyle = "#4CB944";
+  ctx.strokeStyle = "#2A7A26";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + 26, w / 2, 24, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  // wobbly darker stripes
+  ctx.strokeStyle = "#2E8A2A";
+  ctx.lineWidth = 3;
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.moveTo(cx + i * 12, cy + 6);
+    ctx.quadraticCurveTo(cx + i * 14 + 3, cy + 26, cx + i * 12, cy + 46);
+    ctx.stroke();
+  }
+
+  // --- Red eyes ---
+  ctx.fillStyle = "#E01818";
+  ctx.beginPath();
+  ctx.arc(cx - 13, cy + 18, 4.5, 0, Math.PI * 2);
+  ctx.arc(cx + 13, cy + 18, 4.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Huge red grin with pointy teeth ---
+  ctx.fillStyle = "#C41E1E";
+  ctx.beginPath();
+  ctx.moveTo(cx - 20, cy + 30);
+  ctx.quadraticCurveTo(cx, cy + 26, cx + 20, cy + 30);
+  ctx.quadraticCurveTo(cx + 12, cy + 46, cx, cy + 46);
+  ctx.quadraticCurveTo(cx - 12, cy + 46, cx - 20, cy + 30);
+  ctx.closePath();
+  ctx.fill();
+  // white teeth — top row
+  ctx.fillStyle = "#FFF7E8";
+  for (let i = 0; i < 5; i++) {
+    const tx = cx - 15 + i * 7.5;
+    ctx.beginPath();
+    ctx.moveTo(tx, cy + 29);
+    ctx.lineTo(tx + 2.5, cy + 36);
+    ctx.lineTo(tx + 5, cy + 29);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // bottom row
+  for (let i = 0; i < 4; i++) {
+    const tx = cx - 11 + i * 7.5;
+    ctx.beginPath();
+    ctx.moveTo(tx, cy + 44);
+    ctx.lineTo(tx + 2.5, cy + 38);
+    ctx.lineTo(tx + 5, cy + 44);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // --- Green goo drips floating beside it (like the sketch) ---
+  ctx.fillStyle = "#5BD94A";
+  const dx1 = Math.sin(t / 500) * 4;
+  ctx.beginPath();
+  ctx.ellipse(x - 12 + dx1, cy + 20, 5, 9, 0.2, 0, Math.PI * 2);
+  ctx.ellipse(x + w + 12 - dx1, cy + 12, 4, 7, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// === DRAW A CHICKEN === (level 6 — yellow, spiky crest, red claws)
+function drawChicken(e) {
+  const [x, y, , , , hp, , initHp, dir] = e;
+  const t = Date.now();
+  const w = 36, h = 34;
+  const cx = x + w / 2;
+  const step = Math.sin(t / 120) * 2;    // waddle
+
+  // --- Spiky crest on top (yellow triangles) ---
+  ctx.fillStyle = "#F2C438";
+  ctx.strokeStyle = "#C89A18";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const sx = cx - 12 + i * 8;
+    ctx.beginPath();
+    ctx.moveTo(sx, y + 8);
+    ctx.lineTo(sx + 4, y - 6 - (i % 2) * 4);
+    ctx.lineTo(sx + 8, y + 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // --- Yellow body blob ---
+  ctx.fillStyle = "#F2C438";
+  ctx.beginPath();
+  ctx.ellipse(cx, y + 20, 16, 14, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // --- Red angry eyes + red wavy mouth ---
+  ctx.fillStyle = "#D8362A";
+  ctx.beginPath();
+  ctx.arc(cx - 6 + dir * 2, y + 14, 2.2, 0, Math.PI * 2);
+  ctx.arc(cx + 6 + dir * 2, y + 14, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#D8362A";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - 7 + dir * 2, y + 21);
+  ctx.quadraticCurveTo(cx - 3 + dir * 2, y + 24, cx + dir * 2, y + 21);
+  ctx.quadraticCurveTo(cx + 3 + dir * 2, y + 24, cx + 7 + dir * 2, y + 21);
+  ctx.stroke();
+
+  // --- Yellow arms ending in RED claws ---
+  for (const s of [-1, 1]) {
+    ctx.strokeStyle = "#F2C438";
+    ctx.lineWidth = 5;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(cx + s * 13, y + 20);
+    ctx.lineTo(cx + s * 22, y + 28 + step * s);
+    ctx.stroke();
+    ctx.lineCap = "butt";
+    // three red claw fingers
+    ctx.strokeStyle = "#D8362A";
+    ctx.lineWidth = 2;
+    for (let f = -1; f <= 1; f++) {
+      ctx.beginPath();
+      ctx.moveTo(cx + s * 22, y + 28 + step * s);
+      ctx.lineTo(cx + s * (22 + 4) + f * 3, y + 35 + step * s);
+      ctx.stroke();
+    }
+  }
+
+  // --- Feet ---
+  ctx.strokeStyle = "#C89A18";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - 6, y + 32);
+  ctx.lineTo(cx - 6 - step, y + h + 2);
+  ctx.moveTo(cx + 6, y + 32);
+  ctx.lineTo(cx + 6 + step, y + h + 2);
+  ctx.stroke();
+
+  // --- Half-dead crack ---
+  if (hp < initHp) {
+    ctx.strokeStyle = "#8A6A10";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 4, y + 10);
+    ctx.lineTo(cx, y + 16);
+    ctx.lineTo(cx - 3, y + 22);
+    ctx.stroke();
+  }
+}
+
+// === DRAW A LADDER === (black rails + rungs, hangs from a platform)
+function drawLadder(l) {
+  const [x, y, w, h] = l;
+  ctx.strokeStyle = "#1A1A1A";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x + 2, y);
+  ctx.lineTo(x + 2, y + h);
+  ctx.moveTo(x + w - 2, y);
+  ctx.lineTo(x + w - 2, y + h);
+  ctx.stroke();
+  ctx.lineWidth = 2.5;
+  for (let ry = y + 8; ry < y + h - 2; ry += 14) {
+    ctx.beginPath();
+    ctx.moveTo(x + 2, ry);
+    ctx.lineTo(x + w - 2, ry);
+    ctx.stroke();
+  }
+}
+
+// === DRAW A BROCCOLI TREE === (green blobby crown on a thick green trunk)
+function drawTree(tr) {
+  const [x, baseY] = tr;
+  // trunk
+  ctx.fillStyle = "#7ED96A";
+  ctx.strokeStyle = "#3E8A30";
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(x - 7, baseY - 34, 14, 34);
+  ctx.strokeRect(x - 7, baseY - 34, 14, 34);
+  // blobby crown (cluster of circles)
+  ctx.fillStyle = "#4CC244";
+  const blobs = [
+    [0, -48, 16], [-15, -40, 11], [15, -40, 11], [-8, -56, 10], [9, -56, 10],
+  ];
+  for (const [bx, by, r] of blobs) {
+    ctx.beginPath();
+    ctx.arc(x + bx, baseY + by, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = "#2E8A2A";
+  ctx.beginPath();
+  ctx.arc(x, baseY - 48, 16, -Math.PI * 0.9, Math.PI * 0.4);
+  ctx.stroke();
+}
+
+// === DRAW A RAINBOW COIN === (concentric rainbow rings, worth 5 points)
+function drawRainbowCoin(rc) {
+  if (rc.taken) return;
+  const y = rc.y + Math.sin(Date.now() / 250) * 3;
+  const rings = [
+    ["#F2C438", 10],   // yellow outer
+    ["#D8362A", 7],    // red
+    ["#2A6AD8", 4.5],  // blue
+    ["#2E8A2A", 2],    // green center
+  ];
+  for (const [color, r] of rings) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(rc.x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 // === DRAW A FALLING FIREBALL ===
 function drawFireball(f) {
   // Outer flame glow
@@ -1610,7 +1932,27 @@ function drawSpring(s) {
 
 // === DRAW A CANNON ===
 function drawCannon(c) {
-  const [x, y] = c;
+  const [x, y, , , kind] = c;
+
+  if (kind === "mortar") {
+    // Red mortar with black dashes, barrel tilted up-right (level 6 sketch)
+    ctx.save();
+    ctx.translate(x, y + 26);
+    // base block
+    ctx.fillStyle = "#1A1A1A";
+    ctx.fillRect(-14, 8, 34, 12);
+    // tilted barrel
+    ctx.rotate(-Math.PI / 3.2);            // aim up-right
+    ctx.fillStyle = "#C43030";
+    ctx.fillRect(0, -8, 44, 16);
+    ctx.fillStyle = "#1A1A1A";
+    for (let i = 0; i < 3; i++) ctx.fillRect(8 + i * 12, -5, 5, 10);  // dashes
+    // black muzzle
+    ctx.fillRect(42, -11, 10, 22);
+    ctx.restore();
+    return;
+  }
+
   // Base
   ctx.fillStyle = "#333";
   ctx.fillRect(x - 14, y + 10, 28, 20);
@@ -1629,6 +1971,18 @@ function drawCannon(c) {
 
 // === DRAW A BULLET ===
 function drawBullet(b) {
+  if (b.shell) {
+    // Mortar bomb — round black shell with a glint
+    ctx.fillStyle = "#1A1A1A";
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#555";
+    ctx.beginPath();
+    ctx.arc(b.x - 2, b.y - 2, 2, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
   ctx.fillStyle = "#222";
   ctx.beginPath();
   ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
@@ -2363,20 +2717,32 @@ function update() {
       player.speedX = 0;
     }
 
+    // -- Ladders: touching one lets you climb with up/down --
+    let onLadder = false;
+    for (const [lx, ly, lw, lh] of ladders) {
+      if (
+        player.x + player.width > lx && player.x < lx + lw &&
+        player.y + player.height > ly && player.y < ly + lh
+      ) { onLadder = true; break; }
+    }
+
     // -- Jump / swim up --
     const upHeld = keys["ArrowUp"] || keys["w"] || keys[" "];
     if (inWater) {
       // Swim: holding up gives steady upward push (no need to be on ground)
       if (upHeld) player.speedY = -3.5;
-    } else if (upHeld && player.onGround) {
+    } else if (upHeld && player.onGround && !onLadder) {
       player.speedY = player.jumpPower;
       player.onGround = false;
     }
 
-    // -- Gravity / buoyancy --
+    // -- Gravity / buoyancy / climbing --
     if (inWater) {
       player.speedY *= 0.86;          // drag
       player.speedY += 0.18;          // mild sink
+    } else if (onLadder) {
+      // Climb: up/down moves you, otherwise hang on
+      player.speedY = upHeld ? -2.8 : (keys["ArrowDown"] || keys["s"]) ? 2.8 : 0;
     } else {
       player.speedY += gravity;
     }
@@ -2429,13 +2795,15 @@ function update() {
       const isBoss = typeof kind === "string" && kind.startsWith("boss");
       const isAlien = kind === "boss-alien";
       const isSkeleton = kind === "boss-skeleton";
+      const isMelon = kind === "boss-melon";
       const isSnake = kind === "snake";
       const isCroc = kind === "crocodile";
       const isCentipede = kind === "centipede";
-      const ew = isAlien ? 70 : isSkeleton ? 56 : isBoss ? 64 : isCroc ? 80 : isCentipede ? 74 : isSnake ? 56 : 32;
-      const eh = isAlien ? 70 : isSkeleton ? 64 : isBoss ? 50 : isCroc ? 40 : isCentipede ? 22 : isSnake ? 36 : 28;
+      const isChicken = kind === "chicken";
+      const ew = isAlien ? 70 : isSkeleton ? 56 : isBoss ? 64 : isCroc ? 80 : isCentipede ? 74 : isSnake ? 56 : isChicken ? 36 : 32;
+      const eh = isAlien ? 70 : isSkeleton ? 64 : isBoss ? 50 : isCroc ? 40 : isCentipede ? 22 : isSnake ? 36 : isChicken ? 34 : 28;
 
-      if (isAlien || isSkeleton) {
+      if (isAlien || isSkeleton || isMelon) {
         // Flying bosses patrol their platform like a walker, just slower.
         e[0] += 1.2 * e[8];
         if (e[0] < e[2]) { e[0] = e[2]; e[8] = 1; }
@@ -2493,6 +2861,16 @@ function update() {
           vy: dy / d * sp,
           pink: true,
         });
+      }
+
+      // Melon boss spits green goo aimed at the player
+      if (isMelon && frameCount % 95 === 0) {
+        const gx = e[0] + ew / 2;
+        const gy = e[1] + eh - 12;      // out of its grinning mouth
+        const dx = (player.x + player.width / 2) - gx;
+        const dy = (player.y + player.height / 2) - gy;
+        const d = Math.hypot(dx, dy) || 1;
+        acidBalls.push({ x: gx, y: gy, vx: dx / d * 3, vy: dy / d * 3 });
       }
 
       // Skeleton boss throws spinning bones aimed at the player (slower cadence)
@@ -2630,6 +3008,18 @@ function update() {
             player.score += 5;            // no leaf pet around — just points
           }
         }
+      }
+    }
+
+    // -- Rainbow coins: touch to collect (+5 points) --
+    for (const rc of rainbowCoins) {
+      if (rc.taken) continue;
+      if (
+        player.x + player.width > rc.x - 11 && player.x < rc.x + 11 &&
+        player.y + player.height > rc.y - 11 && player.y < rc.y + 11
+      ) {
+        rc.taken = true;
+        player.score += 5;
       }
     }
 
@@ -2786,19 +3176,30 @@ function update() {
 
     // -- Cannons fire bullets --
     for (const c of cannons) {
-      const [cx, cy, rate] = c;
+      const [cx, cy, rate, , kind] = c;
       if (frameCount % rate === 0) {
-        bullets.push({ x: cx + 26, y: cy + 10, vx: bulletSpeed, vy: 0 });
+        if (kind === "mortar") {
+          // Lob a bomb up-right; gravity brings it raining back down.
+          bullets.push({
+            x: cx + 30, y: cy - 6,
+            vx: 0.6 + Math.random() * 1.4,
+            vy: -(8 + Math.random() * 2),
+            g: 0.16, shell: true,
+          });
+        } else {
+          bullets.push({ x: cx + 26, y: cy + 10, vx: bulletSpeed, vy: 0 });
+        }
       }
     }
 
     // -- Bullets move + collide --
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
+      if (b.g) b.vy += b.g;          // mortar shells arc under gravity
       b.x += b.vx;
       b.y += b.vy;
       // Off-screen
-      if (b.x < -20 || b.x > canvas.width + 20) {
+      if (b.x < -20 || b.x > canvas.width + 20 || b.y > canvas.height + 30) {
         bullets.splice(i, 1);
         continue;
       }
@@ -2907,6 +3308,19 @@ function update() {
 
   // Clouds (skip for dark/space levels)
   const lvlObj = levels[currentLevel];
+
+  // Notebook-paper dots (level 6's sketch look)
+  if (lvlObj.bgDots) {
+    ctx.fillStyle = "#C9C9C9";
+    for (let dy = 24; dy < canvas.height; dy += 48) {
+      for (let dx = 24; dx < canvas.width; dx += 48) {
+        ctx.beginPath();
+        ctx.arc(dx, dy, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
   const showClouds = lvlObj.showClouds !== false;
   ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
   if (showClouds) for (const [cx, cy, cw, ch] of clouds) {
@@ -2934,6 +3348,10 @@ function update() {
     ctx.fillStyle = "#6DBE45";
     ctx.fillRect(0, 460, 800, 6);
   }
+
+  // Trees (behind everything on their platforms) + ladders
+  for (const tr of trees) drawTree(tr);
+  for (const l of ladders) drawLadder(l);
 
   // Ramps (drawn after platforms so they sit on top visually)
   for (const r of ramps) drawRamp(r);
@@ -2964,6 +3382,7 @@ function update() {
   // Egg (until it hatches)
   for (const egg of eggs) if (egg.state !== "hatched") drawEgg(egg);
   for (const ch of chests) drawChest(ch);
+  for (const rc of rainbowCoins) drawRainbowCoin(rc);
 
   // Cannons
   for (const c of cannons) drawCannon(c);
@@ -2977,7 +3396,8 @@ function update() {
     if (!(e[9] && typeof k === "string" && k.startsWith("boss"))) continue;
     const bw = k === "boss-alien" ? 70 : k === "boss-skeleton" ? 56 : 64;
     const frac = Math.max(0, e[5] / e[7]);
-    const barW = 60, bx = e[0] + bw / 2 - barW / 2, by = e[1] - 12;
+    // melon boss's horns stick up ~30px — draw its bar above them
+    const barW = 60, bx = e[0] + bw / 2 - barW / 2, by = e[1] - (k === "boss-melon" ? 38 : 12);
     ctx.fillStyle = "rgba(0,0,0,0.6)";
     ctx.fillRect(bx - 1, by - 1, barW + 2, 6);
     ctx.fillStyle = frac > 0.5 ? "#3DDC5A" : frac > 0.25 ? "#FFD23D" : "#FF3D3D";
