@@ -42,10 +42,10 @@ const isTouchDevice = matchMedia("(pointer: coarse)").matches || "ontouchstart" 
 if (isTouchDevice) {
   const buttons = [
     // [label, key it presses, css position]
-    ["◀", "ArrowLeft",  "left:16px;   bottom:16px"],
-    ["▶", "ArrowRight", "left:100px;  bottom:16px"],
-    ["▼", "ArrowDown",  "right:100px; bottom:16px"],   // drop through platforms
-    ["⬆", "ArrowUp",    "right:16px;  bottom:16px"],   // jump
+    ["⬅️", "ArrowLeft",  "left:16px;   bottom:16px"],
+    ["➡️", "ArrowRight", "left:100px;  bottom:16px"],
+    ["⬇️", "ArrowDown",  "right:100px; bottom:16px"],   // drop through platforms
+    ["⬆️", "ArrowUp",    "right:16px;  bottom:16px"],   // jump
   ];
   for (const [label, key, pos] of buttons) {
     const btn = document.createElement("div");
