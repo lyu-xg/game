@@ -366,11 +366,12 @@ const levels = [
     // rainbowCoin: [x, y] — special coin worth 5 points
     rainbowCoins: [[505, 296]],
     eggs: [
-      // GREY spotted egg → hatches a grey robot pet (if you have room, max 3)
+      // GREY spotted egg → the SHADOW pet the kid drew (black fuzzy head,
+      // green eyes, striped body). Hatches only if you have room (max 3).
       {
         x: 75, y: 316,
         color: "#8E8E96", edgeColor: "#4A4A52", spotColor: "#2A2A30",
-        petBody: "#9A9AA2", petEdge: "#55555E", petBeam: "#9FD8FF",
+        petKind: "shadow", petBeam: "#B8E62E",
       },
     ],
     chests: [{ x: 465, y: 88 }],
@@ -2080,6 +2081,7 @@ function drawPet(p) {
   if (p.kind === "volcano") { drawPetVolcano(p); return; }
   if (p.kind === "leaf") { drawPetLeaf(p); return; }
   if (p.kind === "mantis") { drawPetMantis(p); return; }
+  if (p.kind === "shadow") { drawPetShadow(p); return; }
   const t = Date.now();
   const x = p.x, y = p.y + Math.sin(t / 300) * 1.5;
   const cx = x + 14;
@@ -2562,6 +2564,77 @@ function drawPetMantis(p) {
   }
 
   // --- HP pips above (only once hurt) ---
+  if (p.hp < p.maxHp) {
+    const startX = cx - (p.maxHp * 7 - 2) / 2;
+    for (let i = 0; i < p.maxHp; i++) {
+      ctx.fillStyle = i < p.hp ? "#3DDC5A" : "#444";
+      ctx.fillRect(startX + i * 7, y - 22, 5, 3);
+    }
+  }
+}
+
+// === DRAW THE SHADOW PET === (level 6 grey egg — the kid's drawing: black
+// fuzzy head, green eyes with yellow pupils, yellow smile, striped body)
+function drawPetShadow(p) {
+  const t = Date.now();
+  const x = p.x, y = p.y + Math.sin(t / 300) * 1.5;
+  const cx = x + 14;
+
+  // --- Black base blob (its "feet") ---
+  ctx.fillStyle = "#0E0E10";
+  ctx.beginPath();
+  ctx.ellipse(cx, y + 34, 13, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Striped column body ---
+  ctx.fillStyle = "#26262A";
+  ctx.fillRect(cx - 8, y + 18, 16, 14);
+  ctx.strokeStyle = "#0E0E10";
+  ctx.lineWidth = 2;
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath();
+    ctx.moveTo(cx + i * 5, y + 18);
+    ctx.lineTo(cx + i * 5, y + 32);
+    ctx.stroke();
+  }
+
+  // --- Little stubby arms ---
+  ctx.fillStyle = "#1A1A1E";
+  ctx.beginPath();
+  ctx.ellipse(cx - 12, y + 19, 4, 3, 0.4, 0, Math.PI * 2);
+  ctx.ellipse(cx + 12, y + 19, 4, 3, -0.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Big fuzzy black head (overlapping circles for the scribbly look) ---
+  ctx.fillStyle = "#141416";
+  for (const [ox, oy, r] of [[0, 0, 12], [-5, -2, 10], [5, -3, 10], [0, -5, 11]]) {
+    ctx.beginPath();
+    ctx.arc(cx + ox, y + 8 + oy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // --- Green eyes with yellow pupils ---
+  ctx.fillStyle = "#3FA83C";
+  ctx.beginPath();
+  ctx.arc(cx - 5.5, y + 6, 3.4, 0, Math.PI * 2);
+  ctx.arc(cx + 5.5, y + 6, 3.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#E8D84A";
+  ctx.beginPath();
+  ctx.arc(cx - 5.5, y + 6.5, 1.2, 0, Math.PI * 2);
+  ctx.arc(cx + 5.5, y + 6.5, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Yellow smile ---
+  ctx.fillStyle = "#E8D84A";
+  ctx.strokeStyle = "#8A9A20";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(cx, y + 13, 5.5, 2.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // --- HP pips above the head (only once hurt) ---
   if (p.hp < p.maxHp) {
     const startX = cx - (p.maxHp * 7 - 2) / 2;
     for (let i = 0; i < p.maxHp; i++) {
