@@ -34,6 +34,33 @@ window.addEventListener("keydown", (e) => {
 });
 window.addEventListener("keyup", (e) => { keys[e.key] = false; });
 
+// === TOUCH CONTROLS (phones / tablets) ===
+// On-screen buttons that press the same `keys` the keyboard uses.
+// Only created on touch devices, so desktop looks unchanged.
+const isTouchDevice = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window
+  || location.search.includes("touch=1");   // ?touch=1 forces them (for testing)
+if (isTouchDevice) {
+  const buttons = [
+    // [label, key it presses, css position]
+    ["◀", "ArrowLeft",  "left:16px;   bottom:16px"],
+    ["▶", "ArrowRight", "left:100px;  bottom:16px"],
+    ["▼", "ArrowDown",  "right:100px; bottom:16px"],   // drop through platforms
+    ["⬆", "ArrowUp",    "right:16px;  bottom:16px"],   // jump
+  ];
+  for (const [label, key, pos] of buttons) {
+    const btn = document.createElement("div");
+    btn.className = "tbtn";
+    btn.textContent = label;
+    btn.style.cssText = pos;
+    const press   = (e) => { e.preventDefault(); keys[key] = true;  btn.classList.add("held"); };
+    const release = (e) => { e.preventDefault(); keys[key] = false; btn.classList.remove("held"); };
+    btn.addEventListener("touchstart",  press,   { passive: false });
+    btn.addEventListener("touchend",    release, { passive: false });
+    btn.addEventListener("touchcancel", release, { passive: false });
+    document.body.appendChild(btn);
+  }
+}
+
 // === GRAVITY ===
 const gravity = 0.6;
 

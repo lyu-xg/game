@@ -2,8 +2,10 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>My Game</title>
   <style>
+    html, body { height: 100%; }
     body {
       margin: 0;
       background: #222;
@@ -11,11 +13,38 @@
       justify-content: center;
       align-items: center;
       height: 100vh;
+      height: 100dvh;          /* better fit on phones (address bar) */
+      overflow: hidden;
+      touch-action: none;      /* stop scroll/zoom gestures on phones */
     }
     canvas {
       border: 2px solid #555;
       image-rendering: pixelated;
+      /* Scale to fit the screen, keeping the 800x500 shape */
+      width: min(100vw, calc(100dvh * 1.6));
+      max-width: 100vw;
+      height: auto;
     }
+    /* On-screen touch buttons (game.js only creates them on touch devices) */
+    .tbtn {
+      position: fixed;
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      z-index: 10;
+    }
+    .tbtn.held { background: rgba(255, 255, 255, 0.4); }
   </style>
 </head>
 <body>
