@@ -288,6 +288,30 @@ const levels = [
     flag: { x: 740, y: 402, width: 6, height: 48 },
     winCondition: "kill-boss",
   },
+  {
+    // PLACEHOLDER level — just a treasure chest, to test the pet evolution.
+    // The chest holds a GREEN COIN; eating it evolves the leaf pet → MANTIS.
+    name: "Level 6",
+    skyColor: "#A8E4F0",
+    playerStart: { x: 60, y: 380 },
+    platforms: [
+      [0, 460, 800, 40, "#7BB661"],   // grass ground
+    ],
+    coins: [],
+    enemies: [],
+    cannons: [],
+    hazards: [],
+    ramps: [],
+    springs: [],
+    fireSpawners: [],
+    icicles: [],
+    eggs: [],
+    // chests: [x, y] — each holds a green evolution coin. Touch to open,
+    // then eat the coin to evolve the leaf pet.
+    chests: [{ x: 380, y: 424 }],
+    flag: { x: 740, y: 412, width: 6, height: 48 },
+    winCondition: "flag",
+  },
 ];
 
 // === ACTIVE LEVEL STATE ===
@@ -309,6 +333,10 @@ const fireballs = [];
 const MAX_PETS = 3;
 let eggs = [];
 let pets = [];
+// chests: current level's treasure chests, each { x, y, state, coinTaken }.
+//   state: "closed" → "open" (touch it). The green coin inside evolves the
+//   leaf pet into a MANTIS when eaten.
+let chests = [];
 const petBeams = [];
 let frameCount = 0;
 
@@ -365,6 +393,7 @@ function loadLevel(n) {
 
   // Egg resets each level; PETS carry over (they follow you to the next level).
   eggs = (lvl.eggs || []).map(e => ({ ...e, state: "idle", touchedAt: 0 }));
+  chests = (lvl.chests || []).map(c => ({ ...c, state: "closed", coinTaken: false }));
   petBeams.length = 0;
   // Bring carried-over pets back to life and snap them next to the new start.
   for (const p of pets) {
@@ -1669,6 +1698,7 @@ function drawPet(p) {
   if (!p.alive) return;        // hidden while waiting to respawn
   if (p.kind === "volcano") { drawPetVolcano(p); return; }
   if (p.kind === "leaf") { drawPetLeaf(p); return; }
+  if (p.kind === "mantis") { drawPetMantis(p); return; }
   const t = Date.now();
   const x = p.x, y = p.y + Math.sin(t / 300) * 1.5;
   const cx = x + 14;
@@ -1972,6 +2002,257 @@ function drawPetLeaf(p) {
     for (let i = 0; i < p.maxHp; i++) {
       ctx.fillStyle = i < p.hp ? "#3DDC5A" : "#444";
       ctx.fillRect(startX + i * 7, y - 22, 5, 3);
+    }
+  }
+}
+
+// === DRAW THE MANTIS PET === (evolved leaf pet — the kid's mantis drawing:
+// leaf-wing body with veins, orange face with red eyes, spiky green crest,
+// yellow striped belly, serrated raptorial claws, dangly little legs)
+function drawPetMantis(p) {
+  const t = Date.now();
+  const x = p.x, y = p.y + Math.sin(t / 300) * 1.5;
+  const cx = x + 14;
+  const green = "#5BD94A", dark = "#2E7A22", darker = "#1F5418";
+  const atk = p.attackT && (t - p.attackT < 160);
+
+  // --- Big LEAF-WING body sloping down-left, with veins ---
+  const bx0 = cx + 5, by0 = y + 10;                 // base (behind the head)
+  const tx0 = cx - 17, ty0 = y + 32;                // leaf tip (down-left)
+  {
+    const dx = tx0 - bx0, dy = ty0 - by0, len = Math.hypot(dx, dy) || 1;
+    const pxw = -dy / len, pyw = dx / len, hw = 8;
+    ctx.fillStyle = green;
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(bx0, by0);
+    ctx.quadraticCurveTo(bx0 + dx * 0.5 + pxw * hw, by0 + dy * 0.5 + pyw * hw, tx0, ty0);
+    ctx.quadraticCurveTo(bx0 + dx * 0.5 - pxw * hw, by0 + dy * 0.5 - pyw * hw, bx0, by0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // long vein lines running to the tip
+    ctx.strokeStyle = darker;
+    for (const f of [-0.5, 0, 0.5]) {
+      ctx.beginPath();
+      ctx.moveTo(bx0 + pxw * hw * f, by0 + pyw * hw * f);
+      ctx.lineTo(tx0, ty0);
+      ctx.stroke();
+    }
+    // black waist band across the leaf (like the drawing)
+    ctx.fillStyle = "#141414";
+    ctx.save();
+    ctx.translate(bx0 + dx * 0.32, by0 + dy * 0.32);
+    ctx.rotate(Math.atan2(pyw, pxw));
+    ctx.fillRect(-hw + 1, -2, hw * 2 - 2, 4);
+    ctx.restore();
+  }
+
+  // --- Yellow striped belly (right side of the body) ---
+  ctx.fillStyle = "#F2EFA0";
+  ctx.beginPath();
+  ctx.ellipse(cx + 6, y + 16, 4, 7, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(cx + 3, y + 12 + i * 4);
+    ctx.lineTo(cx + 9, y + 13 + i * 4);
+    ctx.stroke();
+  }
+
+  // --- Dangly little legs under the leaf (bulb joints, pointy tips) ---
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 4; i++) {
+    const lx = cx - 12 + i * 6;
+    const sway = Math.sin(t / 200 + i) * 1.5;
+    const ly0 = y + 28 + i * -1;
+    ctx.beginPath();
+    ctx.moveTo(lx, ly0);
+    ctx.lineTo(lx + sway, ly0 + 7);
+    ctx.stroke();
+    ctx.fillStyle = green;
+    ctx.beginPath();
+    ctx.arc(lx + sway, ly0 + 7, 2, 0, Math.PI * 2);   // knee bulb
+    ctx.fill();
+    ctx.beginPath();                                   // pointy foot
+    ctx.moveTo(lx + sway - 1.5, ly0 + 8);
+    ctx.lineTo(lx + sway, ly0 + 14);
+    ctx.lineTo(lx + sway + 1.5, ly0 + 8);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // --- RAPTORIAL CLAW (right side): upper arm + serrated forearm blade ---
+  // Snaps inward on attack.
+  {
+    const shX = cx + 8, shY = y + 12;                  // shoulder
+    const elX = cx + 20, elY = y + 6 + (atk ? 3 : 0);  // elbow (bulb joint)
+    ctx.strokeStyle = green;
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.moveTo(shX, shY);
+    ctx.lineTo(elX, elY);
+    ctx.stroke();
+    ctx.fillStyle = green;
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(elX, elY, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // forearm blade: leaf-shaped, curving down-in; teeth on the inner edge
+    const fTipX = elX - (atk ? 12 : 7), fTipY = elY + (atk ? 16 : 21);
+    const dx = fTipX - elX, dy = fTipY - elY, len = Math.hypot(dx, dy) || 1;
+    const pxw = -dy / len, pyw = dx / len, hw = 4.5;
+    ctx.fillStyle = green;
+    ctx.strokeStyle = dark;
+    ctx.beginPath();
+    ctx.moveTo(elX, elY);
+    ctx.quadraticCurveTo(elX + dx * 0.5 + pxw * hw * 1.6, elY + dy * 0.5 + pyw * hw * 1.6, fTipX, fTipY);
+    ctx.quadraticCurveTo(elX + dx * 0.5 - pxw * hw, elY + dy * 0.5 - pyw * hw, elX, elY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // serrated TEETH along the inner edge
+    ctx.fillStyle = "#DFFBD6";
+    for (let i = 1; i <= 4; i++) {
+      const f = i / 5;
+      const ex = elX + dx * f - pxw * hw * 0.8, ey = elY + dy * f - pyw * hw * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - pxw * 4, ey - pyw * 4);
+      ctx.lineTo(ex + dx / len * 3, ey + dy / len * 3);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // --- Spiky green crest on top of the head ---
+  const hx = cx + 8, hy = y + 2;                       // head center
+  ctx.fillStyle = green;
+  for (let i = 0; i < 4; i++) {
+    const sx = hx - 6 + i * 4;
+    ctx.beginPath();
+    ctx.moveTo(sx, hy - 3);
+    ctx.lineTo(sx + 1 + Math.sin(t / 250 + i) * 1, hy - 12 - (i % 2) * 3);
+    ctx.lineTo(sx + 3.5, hy - 3);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // --- Orange face with RED eyes ---
+  ctx.fillStyle = "#F0B23C";
+  ctx.strokeStyle = "#C88A20";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(hx, hy, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#E01818";
+  ctx.beginPath();
+  ctx.arc(hx - 2.5, hy - 1, 1.5, 0, Math.PI * 2);
+  ctx.arc(hx + 2.5, hy - 1, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+  // green whisker fringe hanging below the face
+  ctx.strokeStyle = green;
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(hx - 4 + i * 2.5, hy + 4);
+    ctx.lineTo(hx - 5 + i * 2.5 + Math.sin(t / 220 + i) * 1, hy + 9);
+    ctx.stroke();
+  }
+
+  // --- Evolution sparkle burst (first second after evolving) ---
+  if (p.evolveT && t - p.evolveT < 1000) {
+    const age = (t - p.evolveT) / 1000;
+    ctx.fillStyle = "rgba(180,255,120," + (1 - age) + ")";
+    for (let i = 0; i < 8; i++) {
+      const a = i / 8 * Math.PI * 2;
+      const r = 10 + age * 26;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(a) * r, y + 14 + Math.sin(a) * r, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // --- HP pips above (only once hurt) ---
+  if (p.hp < p.maxHp) {
+    const startX = cx - (p.maxHp * 7 - 2) / 2;
+    for (let i = 0; i < p.maxHp; i++) {
+      ctx.fillStyle = i < p.hp ? "#3DDC5A" : "#444";
+      ctx.fillRect(startX + i * 7, y - 22, 5, 3);
+    }
+  }
+}
+
+// === DRAW A TREASURE CHEST === (brown with gold trim; open = green coin floats)
+function drawChest(ch) {
+  const x = ch.x, y = ch.y;
+
+  // body
+  ctx.fillStyle = "#8A5A2B";
+  ctx.strokeStyle = "#5C3A18";
+  ctx.lineWidth = 2;
+  ctx.fillRect(x, y + 8, 36, 22);
+  ctx.strokeRect(x, y + 8, 36, 22);
+
+  if (ch.state === "closed") {
+    // domed lid
+    ctx.fillStyle = "#A06A34";
+    ctx.beginPath();
+    ctx.moveTo(x, y + 8);
+    ctx.quadraticCurveTo(x + 18, y - 6, x + 36, y + 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // gold band + lock
+    ctx.fillStyle = "#E8C038";
+    ctx.fillRect(x + 15, y - 1, 6, 31);
+    ctx.fillStyle = "#B8922A";
+    ctx.fillRect(x + 15, y + 12, 6, 7);
+  } else {
+    // lid flipped open behind the box
+    ctx.fillStyle = "#A06A34";
+    ctx.beginPath();
+    ctx.moveTo(x + 2, y + 8);
+    ctx.quadraticCurveTo(x + 18, y - 16, x + 34, y - 2);
+    ctx.lineTo(x + 34, y + 2);
+    ctx.quadraticCurveTo(x + 18, y - 10, x + 4, y + 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // glow from inside
+    ctx.fillStyle = "rgba(140,255,120,0.25)";
+    ctx.beginPath();
+    ctx.ellipse(x + 18, y + 8, 20, 12, 0, Math.PI, 0);
+    ctx.fill();
+
+    if (!ch.coinTaken) {
+      // the GREEN evolution coin, bobbing above the chest
+      const gy = y - 20 + Math.sin(Date.now() / 250) * 3;
+      ctx.fillStyle = "#38C43C";
+      ctx.strokeStyle = "#1E7A22";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x + 18, gy, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // little leaf emblem on the coin
+      ctx.strokeStyle = "#B6F5A8";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x + 14, gy + 3);
+      ctx.quadraticCurveTo(x + 18, gy - 6, x + 22, gy + 3);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + 18, gy - 4);
+      ctx.lineTo(x + 18, gy + 4);
+      ctx.stroke();
     }
   }
 }
@@ -2292,6 +2573,39 @@ function update() {
       }
     }
 
+    // -- TREASURE CHESTS: touch to open; eat the green coin to evolve --
+    for (const ch of chests) {
+      if (ch.state === "closed") {
+        if (
+          player.x + player.width > ch.x && player.x < ch.x + 36 &&
+          player.y + player.height > ch.y - 6 && player.y < ch.y + 30
+        ) {
+          ch.state = "open";
+        }
+      } else if (!ch.coinTaken) {
+        // The green coin floats above the open chest until eaten.
+        const gx = ch.x + 18, gy = ch.y - 20 + Math.sin(Date.now() / 250) * 3;
+        if (
+          player.x + player.width > gx - 10 && player.x < gx + 10 &&
+          player.y + player.height > gy - 10 && player.y < gy + 10
+        ) {
+          ch.coinTaken = true;
+          // EVOLUTION: the green coin turns the leaf pet into a MANTIS —
+          // bigger, tougher, and it slashes much faster.
+          const leafy = pets.find(p => p.kind === "leaf");
+          if (leafy) {
+            leafy.kind = "mantis";
+            leafy.maxHp = 5;
+            leafy.hp = 5;
+            leafy.evolveT = Date.now();   // drives the sparkle burst
+            player.score += 5;
+          } else {
+            player.score += 5;            // no leaf pet around — just points
+          }
+        }
+      }
+    }
+
     // Each pet hovers in its own slot around the player so they don't stack.
     const petSlots = [
       [-30, -22],                              // left, above
@@ -2316,9 +2630,11 @@ function update() {
       const hoverX = player.x + ox;
       const hoverY = player.y + oy + Math.sin(Date.now() / 300 + pi * 2) * 4;
 
-      if (pet.kind === "leaf") {
-        // MELEE pet: charge the nearest damageable enemy and slash it with its
-        // two lower leaves. Falls back to hovering near the player if none.
+      if (pet.kind === "leaf" || pet.kind === "mantis") {
+        // MELEE pet: charge the nearest damageable enemy and slash it.
+        // The leaf pet uses its two lower leaves; the evolved mantis uses its
+        // serrated claws and slashes almost twice as fast.
+        // Falls back to hovering near the player if none.
         let target = null, best = Infinity;
         for (const en of enemies) {
           if (!en[9]) continue;
@@ -2345,7 +2661,7 @@ function update() {
                 target[9] = false;
                 player.score += (typeof target[6] === "string" && target[6].startsWith("boss")) ? 10 : 2;
               }
-              pet.fireCd = 35;
+              pet.fireCd = pet.kind === "mantis" ? 20 : 35;
             }
           }
         } else {
@@ -2620,6 +2936,7 @@ function update() {
 
   // Egg (until it hatches)
   for (const egg of eggs) if (egg.state !== "hatched") drawEgg(egg);
+  for (const ch of chests) drawChest(ch);
 
   // Cannons
   for (const c of cannons) drawCannon(c);
